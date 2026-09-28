@@ -10,7 +10,10 @@ npm install && npm run dev      # http://localhost:5173
 npm run build                   # static bundle in dist/
 ```
 
-With zero config, the app uses the mock weather source. If geolocation is denied or
+With zero config, the app shows live weather from the keyless Open-Meteo API; set an
+OpenWeather key (below) to use OpenWeather instead. Canned sample data is only shown with
+`?source=mock` or when the live request fails, and the overlay says "sample data" whenever it is.
+The reading refreshes every 10 minutes while the tab is visible. If geolocation is denied or
 unavailable, it falls back to Stockholm.
 
 ## Dev overrides
@@ -54,9 +57,12 @@ Key lookup order (`src/data/weatherService.js`):
 1. `window.__WEATHER_API_KEY` (e.g. injected by a hosting template in `index.html`)
 2. `VITE_WEATHER_API_KEY` in `.env.local` (copy `.env.example`; git-ignored)
 
-With no key, the mock source is used. With a key, the app calls the OpenWeather
-`/data/2.5/weather` endpoint and normalizes the response. On any HTTP or parse error it falls back to
-mock data and shows a small note in the overlay.
+With no key, the keyless Open-Meteo `/v1/forecast?current=...` endpoint is used
+(`src/data/sources/openMeteoSource.js`). With a key, the app calls the OpenWeather
+`/data/2.5/weather` endpoint and uses `main.temp` (the current reading). On any HTTP or parse error it
+falls back to mock data and shows a "sample data" note in the overlay. `?source=mock` forces the
+canned data for screenshots. `node tests/weather-source-smoke.js` checks the parsers, the source
+selection and a real request.
 
 ## Structure
 
@@ -71,7 +77,7 @@ src/
     model.js               Weather shape, CONDITIONS, normalizeWeather()
     weatherService.js      picks source, handles fallback, key lookup
     geocode.js             reverse-geocoding stub (TODO)
-    sources/mockSource.js  sources/openWeatherSource.js
+    sources/mockSource.js  sources/openWeatherSource.js  sources/openMeteoSource.js
   engine/                  canvas renderer
     engine.js              rAF loop, dt, DPR/resize, visibility pause, cross-fades
     scene.js               sky, stars, sun/moon, scrolling hills

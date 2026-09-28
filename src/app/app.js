@@ -42,11 +42,14 @@ export async function startApp() {
   const engine = createEngine(document.getElementById('scene'));
   // ?units=c|f pins the temperature unit; otherwise it follows the location's country.
   const overlay = createOverlay(document.getElementById('overlay'), { unit: parseUnitParam(params.get('units')) });
-  const service = createWeatherService();
+  // ?source=mock swaps in canned sample data (dev/screenshots only); the default is always live.
+  const service = createWeatherService({ useMock: params.get('source') === 'mock' });
 
   let live = null;
   let source = service.primaryId;
-  let note = '';
+  let locationNote = '';
+  let dataNote = '';
+  let updatedAt = null; // epoch ms of the last successful refresh
   let place = null;
 
   const initialOverrides = {
@@ -102,15 +105,23 @@ export async function startApp() {
     engine.setWeather(w, { immediate });
     engine.setLandmark(skylineOverride !== undefined ? skylineOverride : landmarkFor(w.location));
     const overridden = overrides.condition || overrides.time || overrides.wind !== null || elevOverride !== null;
-    overlay.render({ weather: w, isDay: w.isDay, note: [note, overridden ? 'dev override' : ''].filter(Boolean).join(' · ') });
+    overlay.render({ weather: w, isDay: w.isDay, note: [locationNote, dataNote, overridden ? 'dev override' : ''].filter(Boolean).join(' · ') });
   }
 
+  /** Fetches the current weather for `place`. Never throws: a failed refresh keeps the last data. */
   async function refresh() {
-    const { weather, source: used, error } = await service.getCurrent(place);
-    live = weather;
-    source = used;
-    note = error ? 'live weather unavailable, showing sample data' : note;
-    apply();
+    try {
+      const { weather, source: used, error } = await service.getCurrent(place);
+      live = weather;
+      source = used;
+      updatedAt = Date.now();
+      // Canned numbers are never passed off as a live reading, whatever the reason for using them.
+      dataNote = used === 'mock' ? (error ? 'live weather unavailable, showing sample data' : 'sample data') : '';
+      apply();
+    } catch (error) {
+      console.warn('[weather] refresh failed:', error);
+      if (live) { dataNote = 'weather update failed, showing last reading'; apply(); }
+    }
   }
 
   const dev = createDevControls(document.getElementById('dev'), {
@@ -122,12 +133,12 @@ export async function startApp() {
     },
     onLocation(loc) {
       place = loc;
-      note = '';
+      locationNote = '';
       refresh();
     },
     getStats: () => {
       const st = engine.state;
-      return { fps: engine.stats.fps, source, effects: st.effects, solarElevation: st.solarElevation, twilight: st.twilight };
+      return { fps: engine.stats.fps, source, updatedAt, observedAt: live?.observedAt, effects: st.effects, solarElevation: st.solarElevation, twilight: st.twilight };
     },
   });
   if (params.get('dev') === '1') dev.setVisible(true);
@@ -158,7 +169,7 @@ export async function startApp() {
   } else {
     const result = await getDeviceLocation();
     place = result.location;
-    if (result.fallback) note = `location ${result.reason}, using ${place.name}`;
+    if (result.fallback) locationNote = `location ${result.reason}, using ${place.name}`;
   }
 
   await refresh();
@@ -169,5 +180,5 @@ export async function startApp() {
   document.addEventListener('visibilitychange', () => { if (!document.hidden) tickSun(); });
 
   // Handy for console experiments, e.g. __bw.engine.setThemes({ rain: { day: { sky: { top: '#000' } } } })
-  window.__bw = { engine, service };
+  window.__bw = { engine, service, refresh, get live() { return live; }, get updatedAt() { return updatedAt; } };
 }

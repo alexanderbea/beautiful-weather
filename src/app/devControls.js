@@ -121,7 +121,9 @@ export function createDevControls(root, { initial = {}, onChange, onLocation, on
     if (root.hidden) return;
     const s = getStats();
     const sun = Number.isFinite(s.solarElevation) ? ` · sun ${s.solarElevation.toFixed(1)}°` : '';
-    el.status.textContent = `${s.fps} fps · source: ${s.source}${sun} · effects: ${s.effects.join(', ') || 'none'}`;
+    const hhmm = (t) => new Date(t).toTimeString().slice(0, 5);
+    const updated = s.updatedAt ? ` · updated ${hhmm(s.updatedAt)}${s.observedAt ? ` (obs ${hhmm(s.observedAt)})` : ''}` : '';
+    el.status.textContent = `${s.fps} fps · source: ${s.source}${updated}${sun} · effects: ${s.effects.join(', ') || 'none'}`;
   }, 400);
 
   sync();

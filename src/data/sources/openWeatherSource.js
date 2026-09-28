@@ -43,7 +43,7 @@ export function createOpenWeatherSource({ apiKey, fetchImpl = fetch } = {}) {
     id: 'openweathermap',
     async fetchCurrent(location) {
       const url = `${ENDPOINT}?lat=${location.lat}&lon=${location.lng}&units=metric&appid=${encodeURIComponent(apiKey)}`;
-      const res = await fetchImpl(url);
+      const res = await fetchImpl(url, { cache: 'no-store' });
       if (!res.ok) throw new Error(`OpenWeather HTTP ${res.status}`);
       return parseOpenWeather(await res.json(), location);
     },
