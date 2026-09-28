@@ -252,7 +252,8 @@ export function createAmbient() {
 
   function updateGrass(dt, env, s) {
     const { period } = swayParams(env.wind);
-    swayPhase = (swayPhase + (TAU * dt) / period) % (TAU * 1000);
+    const rate = env.artStyle?.params.motion.swayRate ?? 1; // art style: stiff print vs. turbulent impasto
+    swayPhase = (swayPhase + (TAU * dt * rate) / period) % (TAU * 1000);
     gust.age += dt;
     if (gust.age >= gust.life) {
       gust.wait -= dt;
@@ -371,7 +372,7 @@ export function createAmbient() {
       if (night > 0) c = mixRgb(c, theme.moon.color, night * 0.8);
       ctx.translate(shift, 0);
       // Dark ripple lines: short dashes on three rows, wobbling on a slow sine and drifting downwind.
-      const rippleA = Math.min(4, 1.5 * (1 + wind / 8)) * s;
+      const rippleA = Math.min(4, 1.5 * (1 + wind / 8)) * s * (env.artStyle?.params.motion.ripple ?? 1);
       ctx.fillStyle = rgba(theme.skyline);
       for (let r = 0; r < 3; r++) {
         const y = shoreY + band * (0.25 + r * 0.3);
@@ -409,7 +410,7 @@ export function createAmbient() {
       const s = scaleOf(env);
       const sp = Math.max(4, GRASS_SPACING * s) / w; // blade spacing in world units (fraction of w)
       const { amp, lean } = swayParams(env.wind);
-      const ampR = amp * DEG * (env.reducedMotion ? 0.5 : 1);
+      const ampR = amp * DEG * (env.reducedMotion ? 0.5 : 1) * (env.artStyle?.params.motion.sway ?? 1);
       const leanR = lean * DEG;
       const k = TAU / (420 * s);
       const sigma = 180 * s;

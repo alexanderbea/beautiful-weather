@@ -26,14 +26,17 @@ export function createRain() {
   }
 
   function strokeDrops(ctx, env, minZ, maxZ, alpha, width) {
+    const art = env.artStyle?.params.rain;
+    const lenK = art?.len ?? 1;
     ctx.globalAlpha = alpha * env.weight;
-    ctx.lineWidth = width;
+    ctx.lineWidth = width * (art?.width ?? 1);
     ctx.beginPath();
     for (const d of drops) {
       if (d.z < minZ || d.z >= maxZ) continue;
-      const k = d.len / d.speed;
+      const len = d.len * lenK;
+      const k = len / d.speed;
       ctx.moveTo(d.x, d.y);
-      ctx.lineTo(d.x - d.vx * k, d.y - d.len);
+      ctx.lineTo(d.x - d.vx * k, d.y - len);
     }
     ctx.stroke();
   }
@@ -81,15 +84,21 @@ export function createRain() {
     },
     draw(ctx, env) {
       // Night palettes set a halo so streaks read against a dark sky; one extra path, near drops only.
-      if (env.theme.particleGlow[3] > 0.005) {
-        ctx.strokeStyle = rgba(env.theme.particleGlow);
-        ctx.lineCap = 'round';
+      const art = env.artStyle?.params.rain;
+      const glowK = art?.glow ?? 1;
+      // Print styles rule the lines with butt caps and no ground ripples.
+      const cap = (art?.round ?? 1) > 0.5 ? 'round' : 'butt';
+      const splashK = art?.splash ?? 1;
+      if (env.theme.particleGlow[3] * glowK > 0.005) {
+        ctx.strokeStyle = rgba(env.theme.particleGlow, glowK);
+        ctx.lineCap = cap;
         strokeDrops(ctx, env, 0.5, 1.01, 1, 4.5);
       }
       ctx.strokeStyle = rgba(env.theme.particle);
-      ctx.lineCap = 'round';
+      ctx.lineCap = cap;
       strokeDrops(ctx, env, 0, 0.5, 0.5, 1);
       strokeDrops(ctx, env, 0.5, 1.01, 0.9, 1.7);
+      if (splashK < 0.01) { ctx.globalAlpha = 1; return; }
 
       // Splashes: expanding ground ripple plus a short upward spray tick in the first third of life.
       // Batched into SPLASH_BUCKETS alpha steps by age, so it is a handful of strokes, not one per splash.
@@ -97,7 +106,7 @@ export function createRain() {
       for (let b = 0; b < SPLASH_BUCKETS; b++) {
         const t0 = b / SPLASH_BUCKETS;
         const t1 = (b + 1) / SPLASH_BUCKETS;
-        ctx.globalAlpha = (1 - (t0 + t1) / 2) * 0.75 * env.weight;
+        ctx.globalAlpha = (1 - (t0 + t1) / 2) * 0.75 * env.weight * splashK;
         ctx.beginPath();
         for (let i = 0; i < splashCount; i++) {
           const s = splashes[i];

@@ -50,7 +50,7 @@ export function createClear() {
     },
     drawBack(ctx, env) {
       const { sun, theme, weight, time } = env;
-      const alpha = weight * sun.alpha * (0.14 + 0.06 * Math.sin(time * 0.5));
+      const alpha = weight * sun.alpha * (0.14 + 0.06 * Math.sin(time * 0.5)) * (env.artStyle?.params.sunRays ?? 1);
       if (alpha > 0.005) {
         const R = sun.r * 9;
         const g = ctx.createRadialGradient(sun.x, sun.y, sun.r, sun.x, sun.y, R);

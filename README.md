@@ -50,6 +50,27 @@ reported after dark by a live source uses it automatically.
 In the console, `window.__bw.engine` exposes the engine,
 e.g. `__bw.engine.setThemes({ rain: { day: { sky: { top: '#223' } } } })` cross-fades to a new palette.
 
+## Art styles
+
+The picker in the bottom-right corner switches the scene between three art styles (default `ghibli`); the choice is
+remembered (localStorage) and `?style=<id>` pins it. Every style restyles the same scene for every
+condition and the whole day -> twilight -> night gradient, and switching cross-fades over ~2 s.
+
+| id | Look |
+|---|---|
+| `japanese` | Ukiyo-e woodblock print: flat stepped "bokashi" sky bands, sumi-ink keylines on every ridge, roof and cloud, a flat vermilion sun, ruled Hiroshige rain, flat cloud bars and washi paper grain. Motion is crisp and steady: slow even drift, stiff grass, still water. |
+| `vangogh` | Post-impressionist: cobalt/ultramarine against chrome yellow, a pre-rendered field of impasto dabs swirling over the sky and following the hills, haloed stars and a ringed moon at night, a radiating sun by day, thick short rain dabs. Motion is turbulent: the brushwork "boils" (three dab fields cross-fade in turn), clouds race, bob and boil, grass and water are restless. |
+| `ghibli` | Anime background painting: smooth cerulean-to-cream sky, huge cel-shaded cumulus with bright caps, lush saturated greens with a foliage texture, a warm golden-hour bloom and a big glowing moon at night. Motion is gentle: slow, softly breathing clouds and an easy sway. |
+
+A style (`src/engine/styles/<id>.js`, registered in `src/engine/styles/index.js`) is three things: a
+THEMES-shaped palette partial merged over the base palettes, a partial over `STYLE_PARAMS` (numeric
+scene parameters the scene and effects read from `env.artStyle.params`: sky bands, keyline, rim/glow
+multipliers, cloud shape, rain/snow shape, motion) and optional overlay passes (`drawSkyBase`, `drawSkyTop`,
+`drawLand`, `drawPost`) whose textures are pre-rendered once per viewport size. The engine lerps the
+palette and the parameters and fades the passes, so nothing snaps. `engine.setStyle(id)` is what the
+picker's state calls; `tests/art-styles-probe.js` measures how far each style departs from the first one
+per condition and checks the runtime cross-fade.
+
 ## Weather API key (OpenWeatherMap)
 
 Key lookup order (`src/data/weatherService.js`):
@@ -71,8 +92,8 @@ index.html
 src/
   main.js                  entry
   styles.css
-  app/                     shell: wiring, overlay UI, dev strip, geolocation
-    app.js  overlay.js  devControls.js  location.js
+  app/                     shell: wiring, overlay UI, dev strip, geolocation, art-style state + picker
+    app.js  overlay.js  devControls.js  location.js  artStyle.js  stylePicker.js
   data/                    normalized model + swappable sources
     model.js               Weather shape, CONDITIONS, normalizeWeather()
     weatherService.js      picks source, handles fallback, key lookup
@@ -84,6 +105,7 @@ src/
     themes.js              data-driven palettes per condition x day/night
     color.js               color parsing + deep interpolation
     effects/               per-effect modules + registry (index.js)
+    styles/                art styles (palette + parameters + overlay passes) + registry (index.js)
 ```
 
 A source is any object `{ id, fetchCurrent(location) => Promise<Weather> }`. Pass one via

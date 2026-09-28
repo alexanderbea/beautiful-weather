@@ -3,6 +3,7 @@ import { THEMES, resolveTheme, deepMerge } from './themes.js';
 import { createScene } from './scene.js';
 import { EFFECTS, CONDITION_EFFECTS } from './effects/index.js';
 import { parseAmbientParams, seasonFor, SEASONS } from './ambient.js';
+import { STYLE_PARAMS, DEFAULT_STYLE_ID, styleDef } from './styles/index.js';
 
 const NIGHT_ALIASES = { night: 'clear', 'night-rain': 'rain' };
 const TRANSITION_S = 1.8;
@@ -41,10 +42,12 @@ export function skyWeights(e) {
 
 /**
  * Canvas 2D renderer. Draw order per frame:
- *   scene sky (+ golden-hour glow) -> effect.drawBack -> scene land (far ridge, skyline, dawn mist,
- *   mid/near hills) -> ambient shade -> effect.draw
+ *   scene sky (+ golden-hour glow; style skyBase / skyTop passes inside) -> effect.drawBack -> scene land
+ *   (far ridge, skyline, dawn mist, mid/near hills) -> style land pass -> ambient shade -> effect.draw
+ *   -> style post pass
  * The land is drawn in three parallax depth layers shifted by env.parallax[i] (see updateParallax).
- * Condition changes cross-fade the theme and the per-effect weights over TRANSITION_S.
+ * Condition changes cross-fade the theme and the per-effect weights over TRANSITION_S; art-style
+ * changes (setStyle) cross-fade the palette, the scene parameters and the style passes the same way.
  */
 export function createEngine(canvas, { themes = THEMES } = {}) {
   const ctx = canvas.getContext('2d');
@@ -61,6 +64,8 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
     season: seasonFor(NaN), // 'spring' | 'summer' | 'autumn' | 'winter' (leaf/petal layer), from location + date
     reducedMotion: false,
     ambient: null, // ambient-life flags { clouds, birds, leaves, grass, water } (scene.ambient.flags)
+    // Art style (styles/index.js): lerped scene parameters plus the sky passes the scene calls.
+    artStyle: { id: DEFAULT_STYLE_ID, params: STYLE_PARAMS, skyBase: null, skyTop: null },
   };
   // Ambient life dev flags: ?ambient=-birds,-grass / ?ambient=leaves / ?ambient=0, ?season=autumn.
   const ambientParams = parseAmbientParams();
@@ -70,7 +75,16 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
   env.ambient = scene.ambient.flags;
   if (seasonOverride) env.season = seasonOverride;
 
-  let themeTable = themes;
+  // Palette = base themes + the active style's overrides + setThemes() overrides (kept across styles).
+  let styleId = DEFAULT_STYLE_ID;
+  let themeOverrides = null;
+  let themeTable = deepMerge(themes, styleDef(styleId).themes, themeOverrides);
+  const styleLayers = new Map(); // style id -> { style (instance or null), weight, target }
+  let paramsFrom = STYLE_PARAMS; // scene parameters glide paramsFrom -> paramsTo over paramsBlend
+  let paramsTo = STYLE_PARAMS;
+  let paramsBlend = 1;
+  env.artStyle.skyBase = (ctx, e) => drawStylePass(ctx, e, 'drawSkyBase');
+  env.artStyle.skyTop = (ctx, e) => drawStylePass(ctx, e, 'drawSkyTop');
   let target = { condition: 'clear', isDay: true, windSpeed: 0, solarElevation: DAY_ELEVATION, sunRising: false };
   let targetWeights = skyWeights(DAY_ELEVATION);
   let themeCache = new Map(); // condition -> { day, twilight, night } resolved themes
@@ -136,6 +150,57 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
     canvas.style.height = `${env.height}px`;
     ctx.setTransform(env.dpr, 0, 0, env.dpr, 0, 0);
     for (const layer of layers.values()) layer.effect.resize?.(env);
+    for (const layer of styleLayers.values()) layer.style?.resize?.(env);
+  }
+
+  function drawStylePass(ctx, e, pass) {
+    for (const layer of styleLayers.values()) {
+      if (layer.weight <= 0.002 || !layer.style?.[pass]) continue;
+      layer.style[pass](ctx, e, ease(layer.weight));
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+    }
+  }
+
+  /** Switches the art style: palette, scene parameters and passes all cross-fade over TRANSITION_S. */
+  function setStyle(id, immediate) {
+    const def = styleDef(id);
+    if (!def || id === styleId) return;
+    styleId = id;
+    themeTable = deepMerge(themes, def.themes, themeOverrides);
+    themeCache = new Map();
+    paramsFrom = env.artStyle.params; // from whatever is on screen, even mid-transition
+    paramsTo = deepMerge(STYLE_PARAMS, def.params);
+    paramsBlend = immediate ? 1 : 0;
+    for (const layer of styleLayers.values()) layer.target = 0;
+    let layer = styleLayers.get(id);
+    if (!layer) {
+      const style = def.create();
+      style?.init?.(env);
+      layer = { style, weight: immediate ? 1 : 0, target: 1 };
+      styleLayers.set(id, layer);
+    }
+    layer.target = 1;
+    env.artStyle.id = id;
+    if (immediate) {
+      for (const [sid, l] of styleLayers) if (sid !== id) { l.style?.destroy?.(); styleLayers.delete(sid); }
+      env.artStyle.params = paramsTo;
+    }
+    retarget(immediate);
+  }
+
+  function updateStyle(dt) {
+    const step = dt / TRANSITION_S;
+    for (const [id, layer] of styleLayers) {
+      layer.weight += Math.max(-step, Math.min(step, layer.target - layer.weight));
+      if (layer.target === 0 && layer.weight <= 0) {
+        layer.style?.destroy?.();
+        styleLayers.delete(id);
+      } else layer.style?.update?.(dt, env);
+    }
+    if (paramsBlend >= 1) return;
+    paramsBlend = Math.min(1, paramsBlend + step);
+    env.artStyle.params = paramsBlend >= 1 ? paramsTo : lerpDeep(paramsFrom, paramsTo, ease(paramsBlend));
   }
 
   function phaseThemes(condition) {
@@ -242,6 +307,7 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
     env.rising += Math.max(-mixStep, Math.min(mixStep, (target.sunRising ? 1 : 0) - env.rising));
     updateParallax(dt);
     env.reducedMotion = reducedMotion;
+    updateStyle(dt);
 
     for (const [id, layer] of layers) {
       const step = dt / TRANSITION_S;
@@ -269,6 +335,7 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
       layer.effect.drawBack(ctx, env);
     }
     scene.drawLand(ctx, env);
+    drawStylePass(ctx, env, 'drawLand');
     if (theme.ambient < 1) {
       ctx.fillStyle = rgba(theme.shade, (1 - theme.ambient) * 0.8);
       ctx.fillRect(0, 0, w, h);
@@ -278,6 +345,7 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
       env.weight = ease(layer.weight);
       layer.effect.draw(ctx, env);
     }
+    drawStylePass(ctx, env, 'drawPost');
     ctx.globalAlpha = 1;
   }
 
@@ -325,8 +393,14 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
 
   let landmark = null;
 
+  // The default style is active from the first frame (its passes, if any, are created here).
+  styleLayers.set(styleId, { style: styleDef(styleId).create(), weight: 1, target: 1 });
+  styleLayers.get(styleId).style?.init?.(env);
+
   return {
     setWeather,
+    /** Art style by id (styles/index.js): palette, scene parameters and overlay passes cross-fade unless opts.immediate. */
+    setStyle(id, { immediate = false } = {}) { setStyle(id, immediate); },
     /** Mid-ground landmark silhouette: 'stockholm' | 'nordic' | null (off). Cross-fades on change. */
     setLandmark(id) {
       if (id === landmark) return;
@@ -371,6 +445,8 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
         landmark,
         season: env.season,
         ambient: scene.ambient.state,
+        style: styleId,
+        styleParams: env.artStyle.params,
         parallax: {
           enabled: parallaxEnabled,
           reducedMotion,
@@ -382,12 +458,15 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
     },
     /** Merge palette overrides (same shape as THEMES) and fade to the result. */
     setThemes(overrides) {
-      themeTable = deepMerge(themeTable, overrides);
+      themeOverrides = deepMerge(themeOverrides, overrides);
+      themeTable = deepMerge(themes, styleDef(styleId).themes, themeOverrides);
       themeCache = new Map();
       retarget(false);
     },
     destroy() {
       stop();
+      for (const layer of styleLayers.values()) layer.style?.destroy?.();
+      styleLayers.clear();
       window.removeEventListener('resize', resize);
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pointermove', onPointerMove);

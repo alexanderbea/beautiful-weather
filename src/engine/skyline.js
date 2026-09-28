@@ -351,6 +351,15 @@ export function createSkyline() {
     drawWater(ctx, env, geo, alpha);
     ctx.translate(shift, 0);
     drawShimmer(ctx, env, geo, alpha);
+    // Print keyline (art styles) along the rooftops.
+    const key = env.artStyle?.params.keyline;
+    if (key && key.alpha > 0.004) {
+      ctx.strokeStyle = rgba(key.color, key.alpha);
+      ctx.lineJoin = 'round';
+      ctx.globalAlpha = alpha;
+      ctx.lineWidth = key.width;
+      ctx.stroke(geo.rim);
+    }
     if (rimGrad) {
       ctx.strokeStyle = rimGrad;
       ctx.lineJoin = 'round';

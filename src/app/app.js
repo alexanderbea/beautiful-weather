@@ -153,10 +153,13 @@ export async function startApp() {
     active: styleState.get(),
     onChange: (id) => styleState.set(id),
   });
+  let firstStyle = true;
   styleState.subscribe((id) => {
-    // Placeholder scene treatment (see artStyle.js): a data attribute that styles.css maps to a canvas filter.
-    // The real art styles (#25) hook their engine call here in place of / alongside the attribute.
-    document.documentElement.dataset.style = id;
+    // The renderer restyles the scene (palette, parameters, overlay passes; see src/engine/styles/).
+    // The first call is the initial choice, so it snaps instead of cross-fading from the default.
+    engine.setStyle(id, { immediate: firstStyle });
+    firstStyle = false;
+    document.documentElement.dataset.style = id; // CSS hook only
     picker.setActive(id);
   });
 

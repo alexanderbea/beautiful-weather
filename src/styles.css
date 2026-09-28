@@ -114,10 +114,3 @@ html, body {
 .dev-toggle:hover, .dev-toggle:focus-visible, .dev-toggle.is-open { opacity: 0.9; background: rgba(10, 16, 28, 0.62); }
 .dev-toggle:focus-visible { outline: 1px solid rgba(232, 238, 246, 0.6); outline-offset: 2px; }
 
-/* Placeholder art styles (see src/app/artStyle.js): a canvas filter per style id until the real
-   art-style definitions (#25) drive the renderer. 'classic' is the unfiltered default. */
-#scene { transition: filter 0.6s ease; }
-[data-style='ink'] #scene { filter: grayscale(1) contrast(1.15) brightness(0.95); }
-[data-style='dusk'] #scene { filter: sepia(0.45) saturate(1.1) contrast(0.95); }
-[data-style='pastel'] #scene { filter: saturate(0.75) brightness(1.08) contrast(0.9); }
-@media (prefers-reduced-motion: reduce) { #scene { transition: none; } }

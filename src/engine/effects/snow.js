@@ -44,13 +44,15 @@ export function createSnow() {
     },
     draw(ctx, env) {
       ctx.fillStyle = rgba(env.theme.particle);
+      const sizeK = env.artStyle?.params.snow.size ?? 1;
       for (const [min, max, alpha] of BUCKETS) {
         ctx.globalAlpha = alpha * env.weight;
         ctx.beginPath();
         for (const f of flakes) {
           if (f.z < min || f.z >= max) continue;
-          ctx.moveTo(f.x + f.r, f.y);
-          ctx.arc(f.x, f.y, f.r, 0, TAU);
+          const r = f.r * sizeK;
+          ctx.moveTo(f.x + r, f.y);
+          ctx.arc(f.x, f.y, r, 0, TAU);
         }
         ctx.fill();
       }

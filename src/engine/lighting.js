@@ -128,7 +128,8 @@ export function createLighting() {
 
       // Warm budget near the horizon: sunsetGlow (already twilight-weighted in the theme) is fixed,
       // golden glow and the warm (pearl) share of the mist are scaled down together if they exceed it.
-      let golden = GOLD_ALPHA * g * L.golden;
+      const art = env.artStyle?.params;
+      let golden = GOLD_ALPHA * g * L.golden * (art?.golden ?? 1);
       const dawnWarm = dawn * t1 * (1 - t2);
       const budget = Math.max(0, WARM_BUDGET - theme.sunsetGlow[3]);
       if (golden + dawnWarm > budget) {
@@ -148,7 +149,7 @@ export function createLighting() {
       const rim = theme.rim;
       const rimK = L.rim;
       const boost = g * RIM_GOLD_BOOST * rimK;
-      const a = rim[3] * (1 + (rimK - 1) * dayW) + boost;
+      const a = (rim[3] * (1 + (rimK - 1) * dayW) + boost) * (art?.rim ?? 1);
       const gk = a > 0 ? boost / a : 0; // hue follows the boost's share of the alpha
       for (let i = 0; i < 3; i++) state.rim[i] = rim[i] + (RIM_GOLD[i] - rim[i]) * gk;
       state.rim[3] = a;

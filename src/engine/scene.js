@@ -26,6 +26,17 @@ const NO_SHIFT = [0, 0, 0];
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const smoothstep = (a, b, v) => { const t = clamp01((v - a) / (b - a)); return t * t * (3 - 2 * t); };
+const mixRgb = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t, 1];
+
+/** Sky gradient colour at t (0 top .. 1 horizon), matching the stops drawSky uses. */
+function skyColorAt(theme, t) {
+  const { top, mid, bottom, low } = theme.sky;
+  if (t <= 0.6) return mixRgb(top, mid, t / 0.6);
+  const plain = mixRgb(mid, bottom, (t - 0.6) / 0.4);
+  if (low[3] <= 0.001) return plain;
+  const at85 = mixRgb(mixRgb(mid, bottom, 0.625), low, low[3]);
+  return t <= 0.85 ? mixRgb(mid, at85, (t - 0.6) / 0.25) : mixRgb(at85, bottom, (t - 0.85) / 0.15);
+}
 
 /** Background scene: sky, stars + aurora (skyLayer.js), sun/moon and a slowly scrolling layered landscape. */
 export function createScene() {
@@ -61,6 +72,35 @@ export function createScene() {
     ctx.lineTo(x1, h);
     ctx.closePath();
     ctx.fill();
+    // Bokashi (print styles): a darker wipe just under the ridge, faded in three widening strokes that
+    // the hill's own shape clips to its inside.
+    const shade = env.artStyle.params.hillShade;
+    if (shade.alpha > 0.004) {
+      ctx.save();
+      ctx.clip();
+      ctx.beginPath();
+      for (let x = x0; x <= x1; x += step) ctx.lineTo(x, hillY(hill, i, (x - shift) / w, h));
+      ctx.strokeStyle = rgba(theme.shade);
+      ctx.lineJoin = 'round';
+      const depth = shade.depth * h;
+      for (let k = 0; k < 3; k++) {
+        ctx.lineWidth = depth * 2 * (1 - k * 0.3);
+        ctx.globalAlpha = shade.alpha * (0.22 + k * 0.14) * (i === 0 ? 0.7 : 1);
+        ctx.stroke();
+      }
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    }
+    // Print keyline (art styles): a crisp ink line along the ridge, in place of / on top of the rim light.
+    const key = env.artStyle.params.keyline;
+    if (key.alpha > 0.004) {
+      ctx.beginPath();
+      for (let x = x0; x <= x1; x += step) ctx.lineTo(x, hillY(hill, i, (x - shift) / w, h) + key.width * 0.5);
+      ctx.strokeStyle = rgba(key.color, key.alpha);
+      ctx.lineWidth = key.width;
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+    }
     if (!rimGrad) return;
     // Top edge only (open path, so no strokes down the sides): a wide soft pass then a crisp line.
     ctx.beginPath();
@@ -75,17 +115,25 @@ export function createScene() {
     ctx.globalAlpha = 1;
   }
 
-  function drawBody(ctx, body, style) {
+  function drawBody(ctx, body, style, cel, key) {
     if (body.alpha <= 0.001) return;
-    const glow = ctx.createRadialGradient(body.x, body.y, body.r * 0.6, body.x, body.y, body.r * 6);
-    glow.addColorStop(0, rgba(style.glow, body.alpha));
-    glow.addColorStop(1, rgba(style.glow, 0));
-    ctx.fillStyle = glow;
-    ctx.fillRect(body.x - body.r * 6, body.y - body.r * 6, body.r * 12, body.r * 12);
+    if (cel.glow > 0.004) {
+      const glow = ctx.createRadialGradient(body.x, body.y, body.r * 0.6, body.x, body.y, body.r * 6);
+      glow.addColorStop(0, rgba(style.glow, body.alpha * cel.glow));
+      glow.addColorStop(1, rgba(style.glow, 0));
+      ctx.fillStyle = glow;
+      ctx.fillRect(body.x - body.r * 6, body.y - body.r * 6, body.r * 12, body.r * 12);
+    }
     ctx.fillStyle = rgba(style.color, body.alpha);
     ctx.beginPath();
     ctx.arc(body.x, body.y, body.r, 0, TAU);
     ctx.fill();
+    // Flat print disc: an ink outline instead of a glow.
+    if (cel.outline > 0.004) {
+      ctx.strokeStyle = rgba(key.color, cel.outline * body.alpha);
+      ctx.lineWidth = key.width;
+      ctx.stroke();
+    }
   }
 
   return {
@@ -105,19 +153,20 @@ export function createScene() {
 
       const m = Math.min(w, h);
       const vis = theme.celestialVisibility;
+      const bodySize = env.artStyle.params.celestial.size;
       // The sun tracks solar elevation and sinks behind the far hills (drawn after the sky, so they
       // occlude it); it is gone by e ~ -5. The moon rises as dayMix falls, faint while twilight glows.
       const sunY = Math.min(0.95, Math.max(SUN_Y_TOP, HORIZON - elev * SUN_Y_PER_DEG));
       env.sun = {
         x: w * 0.72 + Math.sin(time * 0.03) * w * 0.004,
         y: h * sunY + Math.sin(time * 0.07) * h * 0.005,
-        r: m * 0.05 * theme.sun.size,
+        r: m * 0.05 * theme.sun.size * bodySize,
         alpha: smoothstep(-5, -1, elev) * vis,
       };
       env.moon = {
         x: w * 0.28,
         y: h * (theme.moon.y + dayMix * 0.6) + Math.sin(time * 0.05) * h * 0.004,
-        r: m * 0.035 * theme.moon.size,
+        r: m * 0.035 * theme.moon.size * bodySize,
         alpha: (1 - dayMix) * (1 - twilight) ** 2 * Math.max(vis, 0.15),
       };
       env.horizonY = HORIZON * h;
@@ -130,6 +179,7 @@ export function createScene() {
 
     drawSky(ctx, env) {
       const { width: w, height: h, theme } = env;
+      const art = env.artStyle.params;
       const sky = ctx.createLinearGradient(0, 0, 0, env.horizonY);
       sky.addColorStop(0, rgba(theme.sky.top));
       sky.addColorStop(0.6, rgba(theme.sky.mid));
@@ -147,13 +197,32 @@ export function createScene() {
       ctx.fillStyle = sky;
       ctx.fillRect(0, 0, w, h);
 
+      // Bokashi sky (print styles): the same gradient as hard tonal steps, mixed over the smooth one.
+      if (art.sky.mix > 0.004) {
+        const n = Math.max(2, Math.round(art.sky.bands));
+        const f = Math.min(art.sky.feather, 0.9 / n) / 2;
+        const steps = ctx.createLinearGradient(0, 0, 0, env.horizonY);
+        for (let i = 0; i < n; i++) {
+          const c = rgba(skyColorAt(theme, (i + 0.5) / n));
+          steps.addColorStop(Math.max(0, i / n + f), c);
+          steps.addColorStop(Math.min(1, (i + 1) / n - f), c);
+        }
+        ctx.globalAlpha = art.sky.mix;
+        ctx.fillStyle = steps;
+        ctx.fillRect(0, 0, w, env.horizonY);
+        ctx.fillStyle = rgba(skyColorAt(theme, 1));
+        ctx.fillRect(0, env.horizonY - 1, w, h - env.horizonY + 1);
+        ctx.globalAlpha = 1;
+      }
+      env.artStyle.skyBase?.(ctx, env);
+
       // Stars and aurora: right behind the horizon glow, moon, clouds and everything else.
       skyLayer.draw(ctx, env);
 
       const band = ctx.createLinearGradient(0, env.horizonY - h * 0.28, 0, env.horizonY + h * 0.05);
       const hg = env.light.horizonGlow; // theme.horizonGlow, warmed at golden hour
       band.addColorStop(0, rgba(hg, 0));
-      band.addColorStop(0.8, rgba(hg));
+      band.addColorStop(0.8, rgba(hg, art.horizonGlow));
       band.addColorStop(1, rgba(hg, 0));
       ctx.fillStyle = band;
       ctx.fillRect(0, env.horizonY - h * 0.28, w, h * 0.33);
@@ -172,7 +241,7 @@ export function createScene() {
       // Sunset glow: a wide, flattened radial light centred under the sun at the horizon, so the sky
       // reads as lit from the sunset side. Off (alpha 0) in day and night palettes.
       const sg = theme.sunsetGlow;
-      if (sg[3] > 0.004) {
+      if (sg[3] * art.sunsetGlow > 0.004) {
         const R = Math.max(w, h) * 0.75;
         ctx.save();
         ctx.translate(env.sun.x, env.horizonY);
@@ -183,14 +252,17 @@ export function createScene() {
         glow.addColorStop(0.65, rgba(sg, 0.14));
         glow.addColorStop(1, rgba(sg, 0));
         ctx.fillStyle = glow;
+        ctx.globalAlpha = art.sunsetGlow;
         ctx.fillRect(-R, -R, R * 2, R * 2);
         ctx.restore();
+        ctx.globalAlpha = 1;
       }
 
       lighting.drawGolden(ctx, env);
 
-      drawBody(ctx, env.moon, theme.moon);
-      drawBody(ctx, env.sun, theme.sun);
+      drawBody(ctx, env.moon, theme.moon, art.celestial, art.keyline);
+      drawBody(ctx, env.sun, theme.sun, art.celestial, art.keyline);
+      env.artStyle.skyTop?.(ctx, env);
     },
 
     drawLand(ctx, env) {

@@ -1,20 +1,16 @@
+import { STYLE_DEFS, DEFAULT_STYLE_ID } from '../engine/styles/index.js';
+
 /**
  * Art-style selection state: the single source of truth for which scene style is active.
  *
- * PLACEHOLDER REGISTRY. The real art-style definitions are a separate ticket (#25); until they land,
- * ART_STYLES is a small list of ids + labels and the scene treatment for each is a CSS filter on the
- * canvas (`[data-style="…"] #scene` in styles.css). Replacing the registry with the real one keeps the
- * state API (get / set / subscribe) and the picker unchanged: the picker only reads { id, label, hint }.
+ * The registry is the renderer's (src/engine/styles/index.js): each style is defined once there with
+ * its palette, scene parameters and overlay passes, and the picker only reads { id, label, hint, swatch }.
+ * The state API (get / set / subscribe) is what app.js binds to engine.setStyle and the picker.
  *
  * Precedence for the initial style: ?style=<id> > the last choice saved in localStorage > DEFAULT_STYLE.
  */
-export const ART_STYLES = [
-  { id: 'classic', label: 'Classic', hint: 'The default painterly palette' },
-  { id: 'ink', label: 'Ink', hint: 'Monochrome, high contrast' },
-  { id: 'dusk', label: 'Dusk', hint: 'Warm, faded film tones' },
-  { id: 'pastel', label: 'Pastel', hint: 'Soft, lifted colours' },
-];
-export const DEFAULT_STYLE = 'classic';
+export const ART_STYLES = STYLE_DEFS.map(({ id, label, hint, swatch }) => ({ id, label, hint, swatch }));
+export const DEFAULT_STYLE = DEFAULT_STYLE_ID;
 const STORAGE_KEY = 'bw.style';
 
 /** True when `id` names a registered style. */
