@@ -1,0 +1,15 @@
+{
+  "name": "beautiful-weather",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "serve:static": "python3 -m http.server 5173"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0"
+  }
+}

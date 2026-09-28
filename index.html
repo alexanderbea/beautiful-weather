@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Beautiful Weather</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <!-- Optional runtime key injection, e.g. from a hosting template:
+    <script>window.__WEATHER_API_KEY = '...';</script> -->
+  </head>
+  <body>
+    <canvas id="scene" aria-hidden="true"></canvas>
+    <main id="overlay" class="overlay" aria-live="polite"></main>
+    <aside id="dev" class="dev" hidden></aside>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
