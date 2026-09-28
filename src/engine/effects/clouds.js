@@ -3,7 +3,10 @@ import { areaScale, rand, smoothstep } from './util.js';
 
 const TAU = Math.PI * 2;
 const MAX_CLOUDS = 22;
-const CLOUD_PARALLAX = 0.1;
+// Clouds sit just in front of the sky: far clouds barely move with the camera, near ones a little more
+// (still well behind the far ridge's 0.25), so the deck reads as layered depth.
+const CLOUD_PARALLAX_FAR = 0.04;
+const CLOUD_PARALLAX_NEAR = 0.17;
 
 /**
  * Drifting puff clouds. Visible count follows theme.cloud.cover: every cloud has a random
@@ -32,12 +35,13 @@ export function createClouds() {
       depth,
       puffs,
       threshold: Math.random() * 0.9,
-      speed: 5 + depth * 12,
+      speed: (4 + depth * 11) * Math.max(0.6, Math.min(1.4, env.width / 1440)), // px/s: far slow, near faster
     };
   }
 
-  function drawCloud(ctx, c, color, shadow, alpha) {
+  function drawCloud(ctx, c, color, shadow, alpha, shift) {
     ctx.globalAlpha = alpha;
+    ctx.translate(shift, 0);
     ctx.fillStyle = shadow;
     ctx.beginPath();
     for (const p of c.puffs) {
@@ -53,6 +57,7 @@ export function createClouds() {
       ctx.arc(c.x + p.dx, c.y + p.dy - p.r * 0.08, r, 0, TAU);
     }
     ctx.fill();
+    ctx.translate(-shift, 0);
   }
 
   return {
@@ -88,15 +93,15 @@ export function createClouds() {
 
       const color = rgba(cloud.color);
       const shadow = rgba(cloud.shadow);
-      // Clouds sit just in front of the sky: a slight parallax (factor CLOUD_PARALLAX of the camera).
-      const shift = -(env.camX ?? 0) * CLOUD_PARALLAX;
-      ctx.translate(shift, 0);
-      for (const c of clouds) {
+      // Drifting puffs (dev toggle: env.ambient.clouds); the overcast band and moon break stay.
+      const cam = -(env.camX ?? 0);
+      const puffsOn = env.ambient?.clouds !== false;
+      for (const c of puffsOn ? clouds : []) {
         const vis = smoothstep(c.threshold, c.threshold + 0.12, cloud.cover);
         const alpha = vis * cloud.opacity * weight * (0.75 + c.depth * 0.25);
-        if (alpha > 0.005) drawCloud(ctx, c, color, shadow, alpha);
+        const shift = cam * (CLOUD_PARALLAX_FAR + (CLOUD_PARALLAX_NEAR - CLOUD_PARALLAX_FAR) * c.depth);
+        if (alpha > 0.005) drawCloud(ctx, c, color, shadow, alpha, shift);
       }
-      ctx.translate(-shift, 0);
       ctx.globalAlpha = 1;
 
       // Moon break: a thin patch in the overcast where the moon shines through the veil.

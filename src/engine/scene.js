@@ -2,6 +2,7 @@ import { rgba } from './color.js';
 import { createSkyline } from './skyline.js';
 import { createLighting } from './lighting.js';
 import { createSkyLayer } from './skyLayer.js';
+import { createAmbient } from './ambient.js';
 
 const TAU = Math.PI * 2;
 
@@ -32,6 +33,13 @@ export function createScene() {
   const offsets = HILLS.map(() => Math.random());
   const skyline = createSkyline();
   const lighting = createLighting();
+  const ambient = createAmbient(); // birds, leaves/petals, grass sway, water glints (ambient.js)
+
+  // Foreground ridge handle for the grass: y(x) at screen x under the current scroll and shift.
+  const ridge = {
+    offset: 0, shift: 0, w: 1, h: 1,
+    y(x) { return hillY(HILLS[2], 2, (x - this.shift) / this.w, this.h); },
+  };
 
   function hillY(hill, i, u, h) {
     let y = hill.base * h;
@@ -85,6 +93,8 @@ export function createScene() {
     setLandmark: skyline.setLandmark,
     /** Night sky weights last frame: { darkness, stars, aurora, gate }. */
     sky: skyLayer.state,
+    /** Ambient life / micro-motion: flags, setFlags(partial), state. */
+    ambient,
 
     update(dt, env) {
       const { width: w, height: h, theme, dayMix, time } = env;
@@ -115,6 +125,7 @@ export function createScene() {
       lighting.update(env);
       env.light = lighting.state;
       skyLayer.update(dt, env);
+      ambient.update(dt, env);
     },
 
     drawSky(ctx, env) {
@@ -201,11 +212,20 @@ export function createScene() {
       }
       // Depth layers, back to front. Each shifts by env.parallax[layer] px on top of its own scroll.
       const shift = env.parallax ?? NO_SHIFT;
+      ambient.drawBirds(ctx, env); // dusk birds: in front of the clouds, behind every hill
       drawHill(ctx, env, 0, shift[0], rimGrad); // distant: far ridge
       skyline.draw(ctx, env, rimGrad, shift[0], light.skylineRim); // distant: town between far ridge and mid hill
+      ambient.drawWater(ctx, env, { shoreY: skyline.shore * env.height, alpha: skyline.waterAlpha, shift: shift[0] });
       lighting.drawDawnFog(ctx, env, shift[0]); // sunrise mist on the water, still in the distant layer
       drawHill(ctx, env, 1, shift[1], rimGrad); // midground (hides the skyline's foot)
       drawHill(ctx, env, 2, shift[2], rimGrad); // foreground
+      // Grass tufts ride the foreground ridge (same scroll + parallax as the hill), then drifting leaves.
+      ridge.shift = shift[2];
+      ridge.offset = offsets[2];
+      ridge.h = env.height;
+      ridge.w = w;
+      ambient.drawGrass(ctx, env, ridge);
+      ambient.drawLeaves(ctx, env, shift);
     },
   };
 }
