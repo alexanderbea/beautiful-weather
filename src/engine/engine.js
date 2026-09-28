@@ -51,7 +51,7 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
   const layers = new Map(); // effect id -> { effect, weight, target }
   const env = {
     width: 0, height: 0, dpr: 1, time: 0, dt: 0,
-    theme: null, wind: 0, dayMix: 1, twilight: 0, solarElevation: DAY_ELEVATION, weight: 1,
+    theme: null, condition: 'clear', wind: 0, dayMix: 1, twilight: 0, solarElevation: DAY_ELEVATION, weight: 1,
     sun: null, moon: null, horizonY: 0,
     // Camera offset (px, near-layer shift) and per-layer horizontal shift (px, preallocated: [distant, mid, fore]).
     camX: 0, parallax: [0, 0, 0],
@@ -152,6 +152,7 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
   }
 
   function retarget(immediate) {
+    env.condition = target.condition; // canonical condition (night aliases resolved); gates the aurora
     targetWeights = skyWeights(target.solarElevation);
     const next = composeTheme();
     if (immediate || !env.theme) {
@@ -339,6 +340,7 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
         twilight: env.twilight,
         wind: env.wind,
         rising: env.rising,
+        sky: { ...scene.sky },
         light: env.light && { g: env.light.g, golden: env.light.golden, dawn: env.light.dawn, rimAlpha: env.light.rim[3] },
         effects: [...layers.keys()],
         landmark,

@@ -19,7 +19,9 @@ import { isColorString, parseColor } from './color.js';
  *   skyBaseStep            0-1 luminance drop of the sky strip where the skyline stands (0 = off)
  *   sun / moon             disc color, glow color, relative size; moon.y = height as a fraction of the viewport
  *   celestialVisibility    0-1, how much the sun/moon shows through the weather
- *   stars                  0-1 star field opacity
+ *   stars                  0-1 star field opacity (the sky layer also fades stars in with darkness)
+ *   aurora                 0-1 aurora band strength; only the clear-night palette sets it (skyLayer.js
+ *                          also requires astronomical darkness and condition === 'clear')
  *   cloud                  color, shadow, cover (0-1 sky coverage), opacity, band (overcast strip),
  *                          moonBreak (0-1, thins the cloud over the moon so it shines through; 0 = off)
  *   particle               rain/snow color
@@ -49,6 +51,7 @@ export const BASE_THEME = {
   moon: { color: '#eef1ff', glow: 'rgba(190,210,255,0.30)', size: 1, y: 0.17 },
   celestialVisibility: 1,
   stars: 0,
+  aurora: 0,
   cloud: { color: '#ffffff', shadow: '#cfdbea', cover: 0.15, opacity: 0.9, band: 0, moonBreak: 0 },
   particle: 'rgba(255,255,255,0.9)',
   particleGlow: 'rgba(0,0,0,0)',
@@ -166,7 +169,7 @@ export const THEMES = {
     common: { cloud: { cover: 0.12 } },
     day: {},
     twilight: TWILIGHT_BASE,
-    night: NIGHT_BASE,
+    night: { ...NIGHT_BASE, aurora: 1 }, // the only palette with an aurora
   },
   clouds: {
     common: { celestialVisibility: 0.35, cloud: { cover: 0.75, band: 0.35 }, light: { golden: 0.3, rim: 0.35, dawnFog: 0.7 } },

@@ -1,6 +1,7 @@
 import { rgba } from './color.js';
 import { createSkyline } from './skyline.js';
 import { createLighting } from './lighting.js';
+import { createSkyLayer } from './skyLayer.js';
 
 const TAU = Math.PI * 2;
 
@@ -25,15 +26,9 @@ const NO_SHIFT = [0, 0, 0];
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const smoothstep = (a, b, v) => { const t = clamp01((v - a) / (b - a)); return t * t * (3 - 2 * t); };
 
-/** Background scene: sky, stars, sun/moon and a slowly scrolling layered landscape. */
+/** Background scene: sky, stars + aurora (skyLayer.js), sun/moon and a slowly scrolling layered landscape. */
 export function createScene() {
-  const stars = Array.from({ length: 160 }, () => ({
-    x: Math.random(),
-    y: Math.random() * 0.62,
-    r: 0.4 + Math.random() * 1.1,
-    phase: Math.random() * TAU,
-    rate: 0.5 + Math.random() * 1.8,
-  }));
+  const skyLayer = createSkyLayer();
   const offsets = HILLS.map(() => Math.random());
   const skyline = createSkyline();
   const lighting = createLighting();
@@ -88,6 +83,8 @@ export function createScene() {
   return {
     /** Mid-ground landmark silhouette: 'stockholm' | 'nordic' | null. */
     setLandmark: skyline.setLandmark,
+    /** Night sky weights last frame: { darkness, stars, aurora, gate }. */
+    sky: skyLayer.state,
 
     update(dt, env) {
       const { width: w, height: h, theme, dayMix, time } = env;
@@ -117,10 +114,11 @@ export function createScene() {
       // Atmospheric lighting weights for this frame (golden hour, rim, dawn mist) -> env.light.
       lighting.update(env);
       env.light = lighting.state;
+      skyLayer.update(dt, env);
     },
 
     drawSky(ctx, env) {
-      const { width: w, height: h, theme, time } = env;
+      const { width: w, height: h, theme } = env;
       const sky = ctx.createLinearGradient(0, 0, 0, env.horizonY);
       sky.addColorStop(0, rgba(theme.sky.top));
       sky.addColorStop(0.6, rgba(theme.sky.mid));
@@ -138,14 +136,8 @@ export function createScene() {
       ctx.fillStyle = sky;
       ctx.fillRect(0, 0, w, h);
 
-      if (theme.stars > 0.01) {
-        ctx.fillStyle = '#fff';
-        for (const s of stars) {
-          ctx.globalAlpha = theme.stars * (0.55 + 0.45 * Math.sin(time * s.rate + s.phase));
-          ctx.fillRect(s.x * w, s.y * h, s.r, s.r);
-        }
-        ctx.globalAlpha = 1;
-      }
+      // Stars and aurora: right behind the horizon glow, moon, clouds and everything else.
+      skyLayer.draw(ctx, env);
 
       const band = ctx.createLinearGradient(0, env.horizonY - h * 0.28, 0, env.horizonY + h * 0.05);
       const hg = env.light.horizonGlow; // theme.horizonGlow, warmed at golden hour
