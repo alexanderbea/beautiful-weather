@@ -15,7 +15,8 @@ unavailable, it falls back to Stockholm.
 
 ## Dev overrides
 
-Open `http://localhost:5173/?dev=1`, or press the backquote key (`` ` ``) to show or hide the dev strip.
+Click the faint sliders button in the top-right corner, open `http://localhost:5173/?dev=1`, or press the
+backquote key (`` ` ``) to show or hide the dev strip.
 Its controls:
 
 - **Condition**: `Live` or any of `clear, clouds, rain, snow, wind, fog, night, night-rain`
@@ -23,11 +24,19 @@ Its controls:
   condition also swaps in canned temperature and wind for that condition.
 - **Time**: `Live` / `Day` / `Night`.
 - **Wind**: tick the box to override wind speed (0-25 m/s). This biases rain and snow drift, cloud speed, and hill parallax.
-- **Location**: enter `lat, lng` to fetch weather for other coordinates.
+- **Location**: enter a city (`Stockholm, London, Paris, New York, Chicago, Los Angeles, Tokyo`) or `lat, lng`.
 - A status line shows fps, the active data source, and which effects are running.
 
 The same overrides work as URL params, which is handy for screenshots:
-`?dev=1&condition=rain&time=night&wind=12&lat=40.71&lng=-74.0&name=NYC`.
+`?dev=1&condition=rain&time=night&wind=12&lat=40.71&lng=-74.0&name=NYC&country=US`.
+
+## Temperature units
+
+The readout shows `°C` or `°F` by the location's country (ISO alpha-2 `country` on the resolved
+location: OpenWeather `sys.country`, the dev city table, or `?country=`). Fahrenheit for the US and
+its territories, Belize, Liberia, the Bahamas, Cayman Islands, Palau, Micronesia and the Marshall
+Islands (`src/app/units.js`); Celsius everywhere else and whenever the country is unknown (e.g. raw
+coordinates with the mock source). `?units=c` / `?units=f` pins the unit.
 
 `condition` and `time` also work without `?dev=1` (the strip stays hidden). To preview the
 rainy-night scene, the first night-mode variant, open `http://localhost:5173/?condition=night-rain`.

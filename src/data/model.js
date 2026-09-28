@@ -2,7 +2,7 @@
  * Normalized weather model. Everything outside data/ depends only on this shape.
  *
  * @typedef {'rain'|'clear'|'clouds'|'snow'|'wind'|'fog'|'night'|'night-rain'} Condition
- * @typedef {{ lat: number, lng: number, name?: string }} GeoLocation
+ * @typedef {{ lat: number, lng: number, name?: string, country?: string }} GeoLocation // country: ISO 3166-1 alpha-2
  * @typedef {{
  *   condition: Condition,
  *   temperatureC: number,
@@ -21,7 +21,7 @@
 export const CONDITIONS = ['clear', 'clouds', 'rain', 'snow', 'wind', 'fog', 'night', 'night-rain'];
 export const NIGHT_ONLY = ['night', 'night-rain'];
 
-export const DEFAULT_LOCATION = { lat: 59.3293, lng: 18.0686, name: 'Stockholm' };
+export const DEFAULT_LOCATION = { lat: 59.3293, lng: 18.0686, name: 'Stockholm', country: 'SE' };
 
 /** Validates and fills defaults so consumers never see a partial object. */
 export function normalizeWeather(input) {
@@ -33,7 +33,7 @@ export function normalizeWeather(input) {
     humidity: Number.isFinite(input.humidity) ? input.humidity : undefined,
     isDay: NIGHT_ONLY.includes(condition) ? false : input.isDay !== false,
     solarElevation: Number.isFinite(input.solarElevation) ? input.solarElevation : undefined,
-    location: { ...DEFAULT_LOCATION, name: undefined, ...input.location },
+    location: { ...DEFAULT_LOCATION, name: undefined, country: undefined, ...input.location },
     observedAt: input.observedAt ?? Date.now(),
   };
 }

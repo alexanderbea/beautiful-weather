@@ -32,7 +32,7 @@ export function parseOpenWeather(data, location) {
     humidity: data.main?.humidity,
     isDay,
     solarElevation: solarElevation(location.lat, location.lng, new Date(now * 1000)),
-    location: { lat: location.lat, lng: location.lng, name: location.name || data.name || undefined },
+    location: { lat: location.lat, lng: location.lng, name: location.name || data.name || undefined, country: location.country || data.sys?.country || undefined },
     observedAt: now * 1000,
   });
 }

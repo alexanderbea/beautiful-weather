@@ -2,12 +2,13 @@ import { DEFAULT_LOCATION } from '../data/model.js';
 
 const GEO_TIMEOUT_MS = 8000;
 
-/** Parses "?lat=..&lng=.." so a location can be pinned from the URL. */
+/** Parses "?lat=..&lng=..[&name=..&country=US]" so a location can be pinned from the URL. */
 export function locationFromParams(params) {
   const lat = parseFloat(params.get('lat'));
   const lng = parseFloat(params.get('lng') ?? params.get('lon'));
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-  return { lat, lng, name: params.get('name') || undefined };
+  const country = params.get('country')?.trim().toUpperCase() || undefined;
+  return { lat, lng, name: params.get('name') || undefined, country };
 }
 
 /** Parses "59.33, 18.07" style input. Returns null when invalid. */

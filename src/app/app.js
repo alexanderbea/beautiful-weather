@@ -5,6 +5,7 @@ import { CONDITIONS, NIGHT_ONLY, SUNRISE_ELEVATION, DEFAULT_LOCATION, isDaylight
 import { createOverlay } from './overlay.js';
 import { createDevControls } from './devControls.js';
 import { getDeviceLocation, locationFromParams } from './location.js';
+import { parseUnitParam } from './units.js';
 
 const REFRESH_MS = 10 * 60 * 1000;
 const SUN_TICK_MS = 60 * 1000;
@@ -39,7 +40,8 @@ function landmarkFor(loc) {
 export async function startApp() {
   const params = new URLSearchParams(location.search);
   const engine = createEngine(document.getElementById('scene'));
-  const overlay = createOverlay(document.getElementById('overlay'));
+  // ?units=c|f pins the temperature unit; otherwise it follows the location's country.
+  const overlay = createOverlay(document.getElementById('overlay'), { unit: parseUnitParam(params.get('units')) });
   const service = createWeatherService();
 
   let live = null;

@@ -3,14 +3,16 @@ import { parseLatLng } from './location.js';
 
 /** Embedded dev-panel city lookup (keys are lowercase, single-spaced). */
 const DEV_CITIES = {
-  stockholm: { lat: 59.3293, lng: 18.0686, name: 'Stockholm' },
-  london: { lat: 51.5074, lng: -0.1278, name: 'London' },
-  paris: { lat: 48.8566, lng: 2.3522, name: 'Paris' },
-  'new york': { lat: 40.7128, lng: -74.006, name: 'New York' },
-  tokyo: { lat: 35.6762, lng: 139.6503, name: 'Tokyo' },
+  stockholm: { lat: 59.3293, lng: 18.0686, name: 'Stockholm', country: 'SE' },
+  london: { lat: 51.5074, lng: -0.1278, name: 'London', country: 'GB' },
+  paris: { lat: 48.8566, lng: 2.3522, name: 'Paris', country: 'FR' },
+  'new york': { lat: 40.7128, lng: -74.006, name: 'New York', country: 'US' },
+  chicago: { lat: 41.8781, lng: -87.6298, name: 'Chicago', country: 'US' },
+  'los angeles': { lat: 34.0522, lng: -118.2437, name: 'Los Angeles', country: 'US' },
+  tokyo: { lat: 35.6762, lng: 139.6503, name: 'Tokyo', country: 'JP' },
 };
 
-/** Parses dev Location input: a known city name (case/whitespace-insensitive) or "lat, lng". Null when invalid. */
+/** Parses dev Location input: a known city name (case/whitespace-insensitive, carries its country) or "lat, lng". Null when invalid. */
 export function parseLocationInput(text) {
   const key = String(text).trim().replace(/\s+/g, ' ').toLowerCase();
   const city = DEV_CITIES[key];
@@ -18,7 +20,7 @@ export function parseLocationInput(text) {
 }
 
 /**
- * Dev/testing strip. Enabled with ?dev=1 or toggled with the "`" key (backquote).
+ * Dev/testing strip. Enabled with ?dev=1, or toggled with the corner button or the "`" key (backquote).
  * Emits overrides via onChange({ condition, time, wind }) (time: 'day' | 'dawn' | 'twilight' | 'night') where null means "use live data",
  * and onLocation({ lat, lng, name? }) for a manual city name or coordinates.
  */
@@ -45,7 +47,7 @@ export function createDevControls(root, { initial = {}, onChange, onLocation, on
       <input type="checkbox" data-el="parallax" title="Depth parallax (camera drift + pointer)" />
     </div>
     <form class="dev__row" data-el="locForm"><span class="dev__label">Location</span>
-      <input type="text" placeholder="city or lat, lng" title="Stockholm, London, Paris, New York, Tokyo, or lat, lng" data-el="loc" size="16" />
+      <input type="text" placeholder="city or lat, lng" title="Stockholm, London, Paris, New York, Chicago, Los Angeles, Tokyo, or lat, lng" data-el="loc" size="16" />
       <button type="submit">Go</button>
     </form>
     <div class="dev__row dev__status" data-el="status"></div>`;
@@ -91,9 +93,24 @@ export function createDevControls(root, { initial = {}, onChange, onLocation, on
     if (loc) onLocation(loc);
   });
 
+  // Low-key corner button: the in-app way to open the strip (?dev=1 and the backquote key still work).
+  const toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.className = 'dev-toggle';
+  toggle.title = 'Dev tools (`)';
+  toggle.setAttribute('aria-label', 'Toggle dev tools');
+  toggle.setAttribute('aria-controls', root.id);
+  toggle.innerHTML = `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+    <path d="M3 4h10M3 8h10M3 12h10" opacity=".55"/><circle cx="6" cy="4" r="1.6" fill="currentColor"/><circle cx="10.5" cy="8" r="1.6" fill="currentColor"/><circle cx="5" cy="12" r="1.6" fill="currentColor"/></svg>`;
+  toggle.addEventListener('click', () => setVisible(root.hidden));
+  root.after(toggle);
+
   function setVisible(v) {
     root.hidden = !v;
+    toggle.setAttribute('aria-expanded', String(v));
+    toggle.classList.toggle('is-open', v);
   }
+  setVisible(!root.hidden);
   window.addEventListener('keydown', (e) => {
     if (e.key !== '`' || e.target.closest?.('input, textarea')) return;
     setVisible(root.hidden);
