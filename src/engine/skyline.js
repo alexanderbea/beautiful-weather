@@ -422,6 +422,14 @@ export function createSkyline() {
   }
 
   return {
+    /** Waterline as a fraction of h (the water band starts here). */
+    shore: SHORE,
+    /** Visible strength of the water band (0 when no landmark is shown). */
+    get waterAlpha() {
+      let a = 0;
+      for (const l of layers) a = Math.max(a, l.alpha);
+      return a;
+    },
     /** id: 'stockholm' | 'nordic' | null. Fades in/out over FADE_S. */
     setLandmark(id) {
       const next = LANDMARKS[id] ? id : null;

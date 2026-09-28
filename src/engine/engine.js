@@ -2,6 +2,7 @@ import { rgba, lerpDeep } from './color.js';
 import { THEMES, resolveTheme, deepMerge } from './themes.js';
 import { createScene } from './scene.js';
 import { EFFECTS, CONDITION_EFFECTS } from './effects/index.js';
+import { parseAmbientParams, seasonFor, SEASONS } from './ambient.js';
 
 const NIGHT_ALIASES = { night: 'clear', 'night-rain': 'rain' };
 const TRANSITION_S = 1.8;
@@ -57,7 +58,17 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
     camX: 0, parallax: [0, 0, 0],
     rising: 0, // 0..1, eases toward the sunRising flag (dawn mist)
     light: null, // per-frame lighting weights, set by the scene (lighting.js)
+    season: seasonFor(NaN), // 'spring' | 'summer' | 'autumn' | 'winter' (leaf/petal layer), from location + date
+    reducedMotion: false,
+    ambient: null, // ambient-life flags { clouds, birds, leaves, grass, water } (scene.ambient.flags)
   };
+  // Ambient life dev flags: ?ambient=-birds,-grass / ?ambient=leaves / ?ambient=0, ?season=autumn.
+  const ambientParams = parseAmbientParams();
+  let seasonOverride = ambientParams.season;
+  let lastLat = NaN;
+  scene.ambient.setFlags(ambientParams.flags);
+  env.ambient = scene.ambient.flags;
+  if (seasonOverride) env.season = seasonOverride;
 
   let themeTable = themes;
   let target = { condition: 'clear', isDay: true, windSpeed: 0, solarElevation: DAY_ELEVATION, sunRising: false };
@@ -185,7 +196,9 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
    *   sunRising (default false) marks a sunrise, which enables the dawn mist; it eases, never snaps.
    * @param {{ immediate?: boolean }} [opts] immediate snaps instead of cross-fading.
    */
-  function setWeather({ condition, isDay, windSpeed, solarElevation, sunRising }, { immediate = false } = {}) {
+  function setWeather({ condition, isDay, windSpeed, solarElevation, sunRising, location }, { immediate = false } = {}) {
+    if (Number.isFinite(location?.lat)) lastLat = location.lat;
+    env.season = seasonOverride ?? seasonFor(lastLat);
     // Night-only aliases: 'night' is clear sky and 'night-rain' is rain, both with the sun forced below -18 deg.
     const alias = NIGHT_ALIASES[condition];
     let elevation = Number.isFinite(solarElevation)
@@ -228,6 +241,7 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
     env.wind += (target.windSpeed - env.wind) * (1 - Math.exp(-dt * 1.5));
     env.rising += Math.max(-mixStep, Math.min(mixStep, (target.sunRising ? 1 : 0) - env.rising));
     updateParallax(dt);
+    env.reducedMotion = reducedMotion;
 
     for (const [id, layer] of layers) {
       const step = dt / TRANSITION_S;
@@ -328,6 +342,17 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
     setParallaxCam(c) {
       forcedC = Number.isFinite(c) ? c : null;
     },
+    /**
+     * Ambient life / micro-motion toggles (dev/test): any of { clouds, birds, leaves, grass, water } as
+     * booleans, plus season: 'spring' | 'summer' | 'autumn' | 'winter' | null (null = from location/date).
+     */
+    setAmbient({ season, ...flags } = {}) {
+      scene.ambient.setFlags(flags);
+      if (season !== undefined) {
+        seasonOverride = SEASONS.includes(season) ? season : null;
+        env.season = seasonOverride ?? seasonFor(lastLat);
+      }
+    },
     start,
     stop,
     stats,
@@ -344,6 +369,8 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
         light: env.light && { g: env.light.g, golden: env.light.golden, dawn: env.light.dawn, rimAlpha: env.light.rim[3] },
         effects: [...layers.keys()],
         landmark,
+        season: env.season,
+        ambient: scene.ambient.state,
         parallax: {
           enabled: parallaxEnabled,
           reducedMotion,
