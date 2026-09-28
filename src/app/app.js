@@ -8,6 +8,8 @@ import { getDeviceLocation, locationFromParams } from './location.js';
 import { parseUnitParam } from './units.js';
 import { ART_STYLES, createStyleState, parseStyleParam } from './artStyle.js';
 import { createStylePicker } from './stylePicker.js';
+import { createAmbientAudio } from '../engine/audio.js';
+import { createAudioControl } from './audioControl.js';
 
 const REFRESH_MS = 10 * 60 * 1000;
 const SUN_TICK_MS = 60 * 1000;
@@ -77,6 +79,9 @@ export async function startApp() {
   // ?parallax=0 disables the depth parallax (the dev strip checkbox toggles it live).
   const parallaxOn = params.get('parallax') !== '0';
   engine.setParallax(parallaxOn, { immediate: true });
+  // Ambient sound follows the effective weather; muted until the first user gesture (no autoplay).
+  const audio = createAmbientAudio();
+  createAudioControl(document.getElementById('audio-ctl'), audio);
 
   function effective() {
     if (!live) return null;
@@ -105,6 +110,7 @@ export async function startApp() {
     const w = effective();
     if (!w) return;
     engine.setWeather(w, { immediate });
+    audio.setWeather(w);
     engine.setLandmark(skylineOverride !== undefined ? skylineOverride : landmarkFor(w.location));
     const overridden = overrides.condition || overrides.time || overrides.wind !== null || elevOverride !== null;
     overlay.render({ weather: w, isDay: w.isDay, note: [locationNote, dataNote, overridden ? 'dev override' : ''].filter(Boolean).join(' · ') });
@@ -178,6 +184,7 @@ export async function startApp() {
   // Routed through effective() so ?time= / ?elev= apply from the first frame.
   live = cannedWeather('clear', {});
   engine.setWeather(effective(), { immediate: true });
+  audio.setWeather(effective());
   // The placeholder has no real location yet: only show a landmark if pinned via ?skyline=.
   if (skylineOverride) engine.setLandmark(skylineOverride);
   live = null;
@@ -200,5 +207,5 @@ export async function startApp() {
   document.addEventListener('visibilitychange', () => { if (!document.hidden) tickSun(); });
 
   // Handy for console experiments, e.g. __bw.engine.setThemes({ rain: { day: { sky: { top: '#000' } } } })
-  window.__bw = { engine, service, refresh, style: styleState, get live() { return live; }, get updatedAt() { return updatedAt; } };
+  window.__bw = { engine, audio, service, refresh, style: styleState, get live() { return live; }, get updatedAt() { return updatedAt; } };
 }
