@@ -6,6 +6,8 @@ import { createOverlay } from './overlay.js';
 import { createDevControls } from './devControls.js';
 import { getDeviceLocation, locationFromParams } from './location.js';
 import { parseUnitParam } from './units.js';
+import { ART_STYLES, createStyleState, parseStyleParam } from './artStyle.js';
+import { createStylePicker } from './stylePicker.js';
 
 const REFRESH_MS = 10 * 60 * 1000;
 const SUN_TICK_MS = 60 * 1000;
@@ -143,6 +145,21 @@ export async function startApp() {
   });
   if (params.get('dev') === '1') dev.setVisible(true);
 
+  // Art style: ?style=<id> > saved choice > default. The picker is the user-facing control; the state
+  // is the single selection source, so setting it from anywhere (URL, console) updates the picker too.
+  const styleState = createStyleState({ initial: parseStyleParam(params.get('style')) });
+  const picker = createStylePicker(document.getElementById('style-picker'), {
+    styles: ART_STYLES,
+    active: styleState.get(),
+    onChange: (id) => styleState.set(id),
+  });
+  styleState.subscribe((id) => {
+    // Placeholder scene treatment (see artStyle.js): a data attribute that styles.css maps to a canvas filter.
+    // The real art styles (#25) hook their engine call here in place of / alongside the attribute.
+    document.documentElement.dataset.style = id;
+    picker.setActive(id);
+  });
+
   /** Cheap, network-free sun update: live data keeps its source but the sun keeps moving. */
   function tickSun() {
     if (!live) return;
@@ -180,5 +197,5 @@ export async function startApp() {
   document.addEventListener('visibilitychange', () => { if (!document.hidden) tickSun(); });
 
   // Handy for console experiments, e.g. __bw.engine.setThemes({ rain: { day: { sky: { top: '#000' } } } })
-  window.__bw = { engine, service, refresh, get live() { return live; }, get updatedAt() { return updatedAt; } };
+  window.__bw = { engine, service, refresh, style: styleState, get live() { return live; }, get updatedAt() { return updatedAt; } };
 }
