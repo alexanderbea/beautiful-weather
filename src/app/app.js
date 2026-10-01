@@ -1,3 +1,4 @@
+import { parseScene, sceneForcesNight, sceneWeather } from './atmosphere.js';
 import { createEngine } from '../engine/engine.js';
 import { createWeatherService } from '../data/weatherService.js';
 import { cannedWeather } from '../data/sources/mockSource.js';
@@ -62,6 +63,10 @@ export async function startApp() {
     wind: params.has('wind') && Number.isFinite(+params.get('wind')) ? +params.get('wind') : null,
   };
   let overrides = initialOverrides;
+  let atmosphere = parseScene(params.get('scene'));
+  const sceneSelect = document.getElementById('atmosphere');
+  sceneSelect.value = atmosphere;
+  sceneSelect.addEventListener('change', () => { atmosphere = parseScene(sceneSelect.value); apply(); });
   // ?elev=<degrees> pins the sun elevation (beats ?time= and the dev time buttons, not night-only conditions).
   const elevParam = params.get('elev');
   const elevOverride = elevParam !== null && elevParam.trim() !== '' && Number.isFinite(+elevParam) ? +elevParam : null;
@@ -109,11 +114,11 @@ export async function startApp() {
   function apply({ immediate = false } = {}) {
     const w = effective();
     if (!w) return;
-    engine.setWeather(w, { immediate });
+    engine.setWeather(sceneWeather(w, atmosphere), { immediate });
     audio.setWeather(w);
     engine.setLandmark(skylineOverride !== undefined ? skylineOverride : landmarkFor(w.location));
     const overridden = overrides.condition || overrides.time || overrides.wind !== null || elevOverride !== null;
-    overlay.render({ weather: w, isDay: w.isDay, note: [locationNote, dataNote, overridden ? 'dev override' : ''].filter(Boolean).join(' · ') });
+    overlay.render({ weather: w, isDay: w.isDay, note: [locationNote, dataNote, atmosphere !== 'live' ? `${atmosphere} · imagined scene` : '', overridden ? 'dev override' : ''].filter(Boolean).join(' · ') });
   }
 
   /** Fetches the current weather for `place`. Never throws: a failed refresh keeps the last data. */
@@ -135,7 +140,7 @@ export async function startApp() {
   const dev = createDevControls(document.getElementById('dev'), {
     initial: { ...initialOverrides, parallax: parallaxOn },
     onParallax: (on) => engine.setParallax(on),
-    forcesNight: (s) => NIGHT_ONLY.includes(s.condition ?? live?.condition),
+    forcesNight: (s) => sceneForcesNight(atmosphere) || NIGHT_ONLY.includes(s.condition ?? live?.condition),
     onChange(next) {
       overrides = next;
       apply();
@@ -184,7 +189,7 @@ export async function startApp() {
   // Show a scene immediately while geolocation resolves (defaults to Stockholm's real sun position).
   // Routed through effective() so ?time= / ?elev= apply from the first frame.
   live = cannedWeather('clear', {});
-  engine.setWeather(effective(), { immediate: true });
+  engine.setWeather(sceneWeather(effective(), atmosphere), { immediate: true });
   audio.setWeather(effective());
   // The placeholder has no real location yet: only show a landmark if pinned via ?skyline=.
   if (skylineOverride) engine.setLandmark(skylineOverride);

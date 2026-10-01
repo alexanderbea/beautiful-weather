@@ -1,3 +1,4 @@
+import { drawEclipse } from './eclipse.js';
 import { rgba } from './color.js';
 import { createSkyline } from './skyline.js';
 import { createLighting } from './lighting.js';
@@ -260,9 +261,10 @@ export function createScene() {
 
       lighting.drawGolden(ctx, env);
 
-      drawBody(ctx, env.moon, theme.moon, art.celestial, art.keyline);
-      drawBody(ctx, env.sun, theme.sun, art.celestial, art.keyline);
+      if (env.scene !== 'eclipse') drawBody(ctx, env.moon, theme.moon, art.celestial, art.keyline);
+      if (env.scene !== 'eclipse') drawBody(ctx, env.sun, theme.sun, art.celestial, art.keyline);
       env.artStyle.skyTop?.(ctx, env);
+      if (env.scene === 'eclipse') drawEclipse(ctx, env);
     },
 
     drawLand(ctx, env) {

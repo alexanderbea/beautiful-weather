@@ -228,6 +228,7 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
   }
 
   function retarget(immediate) {
+    env.scene = target.scene;
     env.condition = target.condition; // canonical condition (night aliases resolved); gates the aurora
     targetWeights = skyWeights(target.solarElevation);
     const next = composeTheme();
@@ -261,7 +262,7 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
    *   sunRising (default false) marks a sunrise, which enables the dawn mist; it eases, never snaps.
    * @param {{ immediate?: boolean }} [opts] immediate snaps instead of cross-fading.
    */
-  function setWeather({ condition, isDay, windSpeed, solarElevation, sunRising, location }, { immediate = false } = {}) {
+  function setWeather({ condition, isDay, windSpeed, solarElevation, sunRising, location, scene: atmosphere = 'live' }, { immediate = false } = {}) {
     if (Number.isFinite(location?.lat)) lastLat = location.lat;
     env.season = seasonOverride ?? seasonFor(lastLat);
     // Night-only aliases: 'night' is clear sky and 'night-rain' is rain, both with the sun forced below -18 deg.
@@ -271,13 +272,14 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
       : (isDay !== false ? DAY_ELEVATION : NIGHT_ELEVATION);
     if (alias) elevation = Math.min(elevation, NIGHT_ELEVATION);
     const next = {
+      scene: atmosphere,
       condition: alias ?? condition,
       isDay: alias ? false : isDay !== false,
       windSpeed: windSpeed ?? 0,
       solarElevation: elevation,
       sunRising: !alias && sunRising === true,
     };
-    const changed = next.condition !== target.condition
+    const changed = next.scene !== target.scene || next.condition !== target.condition
       || Math.abs(next.solarElevation - target.solarElevation) > ELEVATION_EPSILON;
     target = next;
     if (immediate) {
