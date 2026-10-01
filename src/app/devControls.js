@@ -23,8 +23,10 @@ export function parseLocationInput(text) {
  * Dev/testing strip. Enabled with ?dev=1, or toggled with the corner button or the "`" key (backquote).
  * Emits overrides via onChange({ condition, time, wind }) (time: 'day' | 'dawn' | 'twilight' | 'night') where null means "use live data",
  * and onLocation({ lat, lng, name? }) for a manual city name or coordinates.
+ * forcesNight(state) reports whether the scene is night regardless of the time override (night-only conditions),
+ * so the Time highlight follows the resolved day/night state rather than the stored override.
  */
-export function createDevControls(root, { initial = {}, onChange, onLocation, onParallax, getStats }) {
+export function createDevControls(root, { initial = {}, onChange, onLocation, onParallax, getStats, forcesNight }) {
   const state = { condition: initial.condition ?? null, time: initial.time ?? null, wind: initial.wind ?? null };
 
   const btn = (group, value, label) =>
@@ -55,9 +57,10 @@ export function createDevControls(root, { initial = {}, onChange, onLocation, on
   const el = Object.fromEntries([...root.querySelectorAll('[data-el]')].map((n) => [n.dataset.el, n]));
 
   function sync() {
+    const shown = { ...state, time: forcesNight?.(state) ? 'night' : state.time };
     for (const b of root.querySelectorAll('button[data-group]')) {
       const v = b.dataset.value || null;
-      b.classList.toggle('is-active', state[b.dataset.group] === v);
+      b.classList.toggle('is-active', shown[b.dataset.group] === v);
     }
     el.windOn.checked = state.wind !== null;
     el.wind.disabled = state.wind === null;
@@ -119,6 +122,7 @@ export function createDevControls(root, { initial = {}, onChange, onLocation, on
   // Status line (fps, source, sun elevation, active effects) refreshes a few times per second while visible.
   setInterval(() => {
     if (root.hidden) return;
+    sync(); // live data may switch to (or from) a night-only condition
     const s = getStats();
     const sun = Number.isFinite(s.solarElevation) ? ` · sun ${s.solarElevation.toFixed(1)}°` : '';
     const hhmm = (t) => new Date(t).toTimeString().slice(0, 5);

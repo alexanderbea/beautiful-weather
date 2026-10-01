@@ -135,6 +135,7 @@ export async function startApp() {
   const dev = createDevControls(document.getElementById('dev'), {
     initial: { ...initialOverrides, parallax: parallaxOn },
     onParallax: (on) => engine.setParallax(on),
+    forcesNight: (s) => NIGHT_ONLY.includes(s.condition ?? live?.condition),
     onChange(next) {
       overrides = next;
       apply();
