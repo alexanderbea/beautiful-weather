@@ -1,3 +1,4 @@
+import { createMeteors } from './meteors.js';
 import { drawEclipse } from './eclipse.js';
 import { rgba } from './color.js';
 import { createSkyline } from './skyline.js';
@@ -42,6 +43,7 @@ function skyColorAt(theme, t) {
 /** Background scene: sky, stars + aurora (skyLayer.js), sun/moon and a slowly scrolling layered landscape. */
 export function createScene() {
   const skyLayer = createSkyLayer();
+  const meteors = createMeteors();
   const offsets = HILLS.map(() => Math.random());
   const skyline = createSkyline();
   const lighting = createLighting();
@@ -147,6 +149,7 @@ export function createScene() {
 
     update(dt, env) {
       const { width: w, height: h, theme, dayMix, time } = env;
+      meteors.update(dt, env);
       const twilight = env.twilight ?? 0;
       const elev = env.solarElevation ?? (dayMix > 0.5 ? 45 : -18);
       const drift = 1 + env.wind * 0.06;
@@ -265,6 +268,7 @@ export function createScene() {
       if (env.scene !== 'eclipse') drawBody(ctx, env.sun, theme.sun, art.celestial, art.keyline);
       env.artStyle.skyTop?.(ctx, env);
       if (env.scene === 'eclipse') drawEclipse(ctx, env);
+      meteors.drawSky(ctx, env);
     },
 
     drawLand(ctx, env) {
@@ -300,6 +304,7 @@ export function createScene() {
       ridge.w = w;
       ambient.drawGrass(ctx, env, ridge);
       ambient.drawLeaves(ctx, env, shift);
+      meteors.drawGround(ctx, env);
     },
   };
 }
