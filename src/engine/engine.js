@@ -247,7 +247,9 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
       elevFrom = env.solarElevation;
     }
 
-    const wanted = new Set(CONDITION_EFFECTS[target.condition] ?? []);
+    // The imagined totality must stay visible: even the clear-weather layer has
+    // drifting clouds and sun rays. Fade them out, then restore live effects on exit.
+    const wanted = new Set(target.scene === 'eclipse' ? [] : CONDITION_EFFECTS[target.condition] ?? []);
     if (target.scene === 'meteors') wanted.clear();
     for (const [id, layer] of layers) layer.target = wanted.has(id) ? 1 : 0;
     for (const id of wanted) {
