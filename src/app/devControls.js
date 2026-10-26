@@ -131,5 +131,5 @@ export function createDevControls(root, { initial = {}, onChange, onLocation, on
   }, 400);
 
   sync();
-  return { setVisible, get state() { return { ...state }; } };
+  return { setVisible, sync, get state() { return { ...state }; } };
 }

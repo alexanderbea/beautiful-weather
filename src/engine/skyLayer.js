@@ -142,9 +142,9 @@ export function createSkyLayer() {
       const step = dt / GATE_S;
       gate += Math.max(-step, Math.min(step, (clear ? 1 : 0) - gate));
       state.darkness = darknessAt(elev);
-      state.stars = (env.theme.stars ?? 0) * state.darkness;
+      state.stars = (env.theme.stars ?? 0) * state.darkness * (env.scene === 'meteors' ? .65 : 1);
       state.gate = gate;
-      state.aurora = AURORA_ALPHA * clamp01(env.theme.aurora ?? 0) * auroraDarknessAt(elev) * gate * gate * (3 - 2 * gate);
+      state.aurora = (env.scene === 'meteors' ? 0 : 1) * AURORA_ALPHA * clamp01(env.theme.aurora ?? 0) * auroraDarknessAt(elev) * gate * gate * (3 - 2 * gate);
     },
 
     draw(ctx, env) {

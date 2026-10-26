@@ -144,6 +144,7 @@ export function createScene() {
     setLandmark: skyline.setLandmark,
     /** Night sky weights last frame: { darkness, stars, aurora, gate }. */
     sky: skyLayer.state,
+    meteors,
     /** Ambient life / micro-motion: flags, setFlags(partial), state. */
     ambient,
 

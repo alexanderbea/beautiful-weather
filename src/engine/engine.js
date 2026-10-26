@@ -166,6 +166,7 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
   function setStyle(id, immediate) {
     const def = styleDef(id);
     if (!def || id === styleId) return;
+    scene.meteors.reset();
     styleId = id;
     themeTable = deepMerge(themes, def.themes, themeOverrides);
     themeCache = new Map();
@@ -247,6 +248,7 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
     }
 
     const wanted = new Set(CONDITION_EFFECTS[target.condition] ?? []);
+    if (target.scene === 'meteors') wanted.clear();
     for (const [id, layer] of layers) layer.target = wanted.has(id) ? 1 : 0;
     for (const id of wanted) {
       if (layers.has(id) || !EFFECTS[id]) continue;
@@ -281,6 +283,7 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
     };
     const changed = next.scene !== target.scene || next.condition !== target.condition
       || Math.abs(next.solarElevation - target.solarElevation) > ELEVATION_EPSILON;
+    if (next.scene !== target.scene) scene.meteors.reset();
     target = next;
     if (immediate) {
       env.wind = target.windSpeed;
@@ -291,7 +294,8 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
 
   function update(dt) {
     env.dt = dt;
-    env.time += dt;
+    const staticMeteors = reducedMotion && target.scene === 'meteors';
+    if (!staticMeteors) env.time += dt;
 
     if (blend < 1) {
       blend = Math.min(1, blend + dt / TRANSITION_S);
@@ -320,7 +324,7 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
       }
     }
 
-    scene.update(dt, env);
+    scene.update(staticMeteors ? 0 : dt, env);
     for (const layer of layers.values()) {
       env.weight = ease(layer.weight);
       layer.effect.update(dt, env);
@@ -442,6 +446,7 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
         wind: env.wind,
         rising: env.rising,
         sky: { ...scene.sky },
+        meteors: scene.meteors.state,
         light: env.light && { g: env.light.g, golden: env.light.golden, dawn: env.light.dawn, rimAlpha: env.light.rim[3] },
         effects: [...layers.keys()],
         landmark,

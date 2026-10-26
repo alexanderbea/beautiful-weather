@@ -118,7 +118,10 @@ export async function startApp() {
     audio.setWeather(w);
     engine.setLandmark(skylineOverride !== undefined ? skylineOverride : landmarkFor(w.location));
     const overridden = overrides.condition || overrides.time || overrides.wind !== null || elevOverride !== null;
-    overlay.render({ weather: w, isDay: w.isDay, note: [locationNote, dataNote, atmosphere !== 'live' ? `${atmosphere} · imagined scene` : '', overridden ? 'dev override' : ''].filter(Boolean).join(' · ') });
+    const sceneNote = atmosphere === 'meteors' ? 'Meteor shower · night demo'
+      : atmosphere === 'eclipse' ? 'eclipse · imagined scene' : '';
+    dev.sync();
+    overlay.render({ weather: w, isDay: atmosphere === 'meteors' ? false : w.isDay, note: [locationNote, dataNote, sceneNote, overridden ? 'dev override' : ''].filter(Boolean).join(' · ') });
   }
 
   /** Fetches the current weather for `place`. Never throws: a failed refresh keeps the last data. */

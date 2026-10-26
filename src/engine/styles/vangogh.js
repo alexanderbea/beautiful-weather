@@ -365,7 +365,7 @@ function createInstance() {
         ctx.arc(sun.x, sun.y, sun.r - s, 0, TAU);
         ctx.stroke();
       }
-      const night = darknessAt(env.solarElevation) * theme.stars * weight;
+      const night = darknessAt(env.solarElevation) * theme.stars * weight * (env.scene === 'meteors' ? .55 : 1);
       if (night > 0.01 && star) {
         const size = STAR_SPRITE * s;
         for (let i = 0; i < STARS.length; i++) {
@@ -392,6 +392,7 @@ function createInstance() {
     /** The impasto: the dab field with 'overlay' (takes the scene's own colours), then the flecks. */
     drawPost(ctx, env, weight) {
       if (!field) return;
+      if (env.scene === 'meteors') weight *= .55;
       const { width: w, height: h, theme } = env;
       // Boil: the brushwork re-paints itself, cross-fading frame i -> i + 1 every FIELD_FRAME_S, and the
       // flecks circle a few px along the flow. Reduced motion holds the first frame still.

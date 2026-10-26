@@ -300,7 +300,7 @@ function createInstance() {
         ctx.drawImage(bloomMoon, moon.x - R, moon.y - R, R * 2, R * 2);
       }
       ctx.globalCompositeOperation = 'source-over';
-      const night = darknessAt(env.solarElevation) * theme.stars * weight;
+      const night = darknessAt(env.solarElevation) * theme.stars * weight * (env.scene === 'meteors' ? .65 : 1);
       if (night > 0.01) {
         const s = dabScale(w, h);
         ctx.strokeStyle = rgba(SPARKLE_COLOR);
