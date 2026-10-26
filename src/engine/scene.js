@@ -1,3 +1,4 @@
+import { createWaterWildlife } from './wildlife.js';
 import { createMeteors } from './meteors.js';
 import { drawEclipse } from './eclipse.js';
 import { rgba } from './color.js';
@@ -44,6 +45,7 @@ function skyColorAt(theme, t) {
 export function createScene() {
   const skyLayer = createSkyLayer();
   const meteors = createMeteors();
+  const wildlife = createWaterWildlife();
   const offsets = HILLS.map(() => Math.random());
   const skyline = createSkyline();
   const lighting = createLighting();
@@ -147,6 +149,9 @@ export function createScene() {
     meteors,
     /** Ambient life / micro-motion: flags, setFlags(partial), state. */
     ambient,
+    wildlife,
+    resetWildlife() { wildlife.reset(); ambient.resetBirds(); },
+    interact(x, y, env) { return ambient.interact(x, y, env) || wildlife.interact(x, y); },
 
     update(dt, env) {
       const { width: w, height: h, theme, dayMix, time } = env;
@@ -180,6 +185,7 @@ export function createScene() {
       env.light = lighting.state;
       skyLayer.update(dt, env);
       ambient.update(dt, env);
+      wildlife.update(dt, env);
     },
 
     drawSky(ctx, env) {
@@ -295,6 +301,16 @@ export function createScene() {
       drawHill(ctx, env, 0, shift[0], rimGrad); // distant: far ridge
       skyline.draw(ctx, env, rimGrad, shift[0], light.skylineRim); // distant: town between far ridge and mid hill
       ambient.drawWater(ctx, env, { shoreY: skyline.shore * env.height, alpha: skyline.waterAlpha, shift: shift[0] });
+      const step = Math.max(4, w / 240);
+      const contour = (i, x) => {
+        const left = Math.floor(x / step) * step;
+        const a = hillY(HILLS[i], i, (left - shift[i]) / w, env.height);
+        const b = hillY(HILLS[i], i, (left + step - shift[i]) / w, env.height);
+        return a + (b - a) * (x - left) / step;
+      };
+      wildlife.setWater({ width: w, shore: skyline.shore * env.height, alpha: skyline.waterAlpha,
+        bottom: x => Math.min(contour(1, x), contour(2, x)) });
+      wildlife.draw(ctx, env);
       lighting.drawDawnFog(ctx, env, shift[0]); // sunrise mist on the water, still in the distant layer
       drawHill(ctx, env, 1, shift[1], rimGrad); // midground (hides the skyline's foot)
       drawHill(ctx, env, 2, shift[2], rimGrad); // foreground

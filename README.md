@@ -122,6 +122,24 @@ A source is any object `{ id, fetchCurrent(location) => Promise<Weather> }`. Pas
    (`src/engine/effects/index.js`). Effects shared between conditions (e.g. `clouds`) persist
    across a switch and only their theme values fade.
 
+## Interactive wildlife
+
+Dusk flocks glide across the sky; tap near a bird to scatter the flock for three seconds.
+A single straggler occasionally struggles against a gust and catches up. Tap visible water
+below the skyline for ripples and a small fish jump. Water hit testing follows the actual
+shore and the sampled, scrolling hill contours; land and UI controls never trigger fish.
+
+Wildlife uses the existing animation loop: at most seven birds, one fish and three ripple
+pairs. Bird taps have a four-second cooldown; water taps have a 1.8-second cooldown.
+Scene/style/landmark changes, resize and engine destruction discard wildlife state.
+Reduced motion shows static wildlife without reactions. `__bw.engine.stop()` pauses the
+scene, including interactions; `start()` resumes it. Hidden tabs suspend rendering without
+undoing a manual pause. No extra timers or animation loops are created.
+
+For a dusk preview use `?elev=0&condition=clear&skyline=stockholm`. These are artwork/weather
+overrides for testing; remove them to return to live weather. Existing `?ambient=-birds,-water`
+flags disable wildlife. Test with `node --test tests/*.test.js`; build with `npm run build`.
+
 ## Status / TODO
 
 - v1 conditions: `clear`, `clouds`, `rain`, `snow`. `wind` (streaks), `fog` (haze bands) and

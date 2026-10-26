@@ -166,6 +166,8 @@ export function createAmbient() {
   let flock = null;
   let flockWait = rand(3, 8); // first flock soon after dusk begins, then every 18-40 s
   let birdAlpha = 0;
+  let scatter = 0, birdCooldown = 0, funnyWait = rand(65, 110), funny = 0;
+  let birdHits = [];
   // Leaves
   const leaves = [];
   let leafClock = 0;
@@ -185,6 +187,18 @@ export function createAmbient() {
 
   function updateBirds(dt, env, s) {
     const gate = flags.birds ? birdGate(env) : 0;
+    if (env.reducedMotion) {
+      scatter = funny = 0; birdAlpha = gate;
+      if (gate > .2 && !flock) { flock = makeFlock(env, s); flock.x = env.width * .72; }
+      return;
+    }
+    scatter = Math.max(0, scatter - dt);
+    birdCooldown = Math.max(0, birdCooldown - dt);
+    funny = Math.max(0, funny - dt);
+    funnyWait -= dt;
+    if (funnyWait <= 0 && flock && flock.birds.length > 1 && gate > .2) {
+      funny = 4; funnyWait = rand(90, 160);
+    }
     birdAlpha += (gate - birdAlpha) * (1 - Math.exp(-dt / 1.5));
     if (flock) {
       flock.t += dt;
@@ -306,13 +320,19 @@ export function createAmbient() {
 
   return {
     flags,
+    resetBirds() { flock = null; birdHits = []; scatter = funny = birdCooldown = 0; birdAlpha = 0; flockWait = rand(3, 8); funnyWait = rand(65, 110); },
+    interact(x, y, env) {
+      if (env.reducedMotion || env.paused || birdCooldown > 0 || birdAlpha < .1 || !flags.birds) return false;
+      if (!birdHits.some(b => Math.hypot(x - b.x, y - b.y) < 26)) return false;
+      scatter = 3; birdCooldown = 4; return true;
+    },
     setFlags(next) {
       for (const k of AMBIENT_KEYS) if (typeof next?.[k] === 'boolean') flags[k] = next[k];
       if (!flags.leaves) { leaves.length = 0; leavesSeeded = false; }
       if (!flags.birds) flock = null;
     },
     get state() {
-      return { flags: { ...flags }, birds: flock ? flock.birds.length : 0, birdGate: birdAlpha, leaves: leaves.length, glints: glints.length };
+      return { flags: { ...flags }, birds: flock ? flock.birds.length : 0, birdGate: birdAlpha, scatter, funny, birdHits: birdHits.map(b => ({ ...b })), leaves: leaves.length, glints: glints.length };
     },
 
     update(dt, env) {
@@ -329,6 +349,7 @@ export function createAmbient() {
     },
 
     drawBirds(ctx, env) {
+      birdHits = [];
       if (!flock || birdAlpha < 0.01) return;
       const s = scaleOf(env);
       const shift = -(env.camX ?? 0) * BIRD_PARALLAX;
@@ -338,16 +359,20 @@ export function createAmbient() {
       const baseY = flock.y0 + Math.sin((TAU * t) / flock.bobP) * flock.bobA;
       ctx.strokeStyle = rgba(color, 0.75 * birdAlpha);
       ctx.lineWidth = 1.3 * Math.max(0.8, s) * (flock.far ? 0.85 : 1);
-      ctx.lineCap = 'round';
+      ctx.lineCap = env.artStyle.id === 'japanese' ? 'butt' : 'round';
+      if (env.artStyle.id === 'vangogh') ctx.lineWidth *= 1.5;
       ctx.beginPath();
       for (const b of flock.birds) {
         const drift = Math.sin((TAU * t) / b.driftP + b.driftPh) * 3 * s;
-        const x = flock.x + b.ox + shift + drift;
-        const y = baseY + b.oy + Math.cos((TAU * t) / b.driftP + b.driftPh) * 2 * s;
+        const spread = Math.sin(Math.PI * scatter / 3) * 24 * s;
+        const lag = b === flock.birds[flock.birds.length - 1] ? Math.sin(Math.PI * funny / 4) * 32 * s : 0;
+        const x = flock.x + b.ox + shift + drift + Math.cos(b.phase) * spread - flock.dir * lag;
+        const y = baseY + b.oy + Math.cos((TAU * t) / b.driftP + b.driftPh) * 2 * s + Math.sin(b.phase) * spread;
+        birdHits.push({ x, y });
         // Flap / glide cycle: flap strength rises and falls with a sine window, gliding holds wings up.
         const cyc = (t + b.cycle) % (b.flap + b.glide);
         const env01 = cyc < b.flap ? Math.sin((Math.PI * cyc) / b.flap) ** 0.5 : 0;
-        const wing = 0.3 * (1 - env01) + Math.sin(TAU * b.hz * t + b.phase) * env01;
+        const wing = 0.3 * (1 - env01) + Math.sin(TAU * b.hz * t * (lag > 1 ? 1.8 : 1) + b.phase) * (lag > 1 ? 1 : env01);
         const half = b.span / 2;
         const tipY = y - wing * b.span * 0.35;
         ctx.moveTo(x - half, tipY);

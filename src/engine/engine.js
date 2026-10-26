@@ -1,3 +1,4 @@
+import { bindWildlifeInput } from './wildlife.js';
 import { rgba, lerpDeep } from './color.js';
 import { THEMES, resolveTheme, deepMerge } from './themes.js';
 import { createScene } from './scene.js';
@@ -95,6 +96,7 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
   let rafId = 0;
   let last = 0;
   let running = false;
+  let manualPause = false;
   let fpsAcc = 0;
   let fpsFrames = 0;
   const stats = { fps: 0 };
@@ -141,6 +143,7 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
   }
 
   function resize() {
+    scene.resetWildlife();
     env.dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
     env.width = window.innerWidth;
     env.height = window.innerHeight;
@@ -167,6 +170,7 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
     const def = styleDef(id);
     if (!def || id === styleId) return;
     scene.meteors.reset();
+    scene.resetWildlife();
     styleId = id;
     themeTable = deepMerge(themes, def.themes, themeOverrides);
     themeCache = new Map();
@@ -286,6 +290,7 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
     const changed = next.scene !== target.scene || next.condition !== target.condition
       || Math.abs(next.solarElevation - target.solarElevation) > ELEVATION_EPSILON;
     if (next.scene !== target.scene) scene.meteors.reset();
+    if (changed) scene.resetWildlife();
     target = next;
     if (immediate) {
       env.wind = target.windSpeed;
@@ -375,21 +380,27 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
   }
 
   function start() {
-    if (running) return;
+    manualPause = false;
+    if (running || document.hidden) return;
     running = true;
     last = performance.now();
     rafId = requestAnimationFrame(frame);
   }
 
   function stop() {
+    manualPause = true;
     running = false;
     cancelAnimationFrame(rafId);
   }
 
   function onVisibility() {
-    if (document.hidden) stop();
-    else start();
+    if (document.hidden) { running = false; cancelAnimationFrame(rafId); }
+    else if (!manualPause) start();
   }
+
+  const unbindWildlife = bindWildlifeInput(window, canvas,
+    () => running && !document.hidden && !reducedMotion,
+    (x, y) => scene.interact(x, y, env));
 
   window.addEventListener('resize', resize);
   document.addEventListener('visibilitychange', onVisibility);
@@ -413,6 +424,7 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
     setLandmark(id) {
       if (id === landmark) return;
       landmark = id ?? null;
+      scene.resetWildlife();
       scene.setLandmark(landmark);
     },
     /** Depth parallax on/off; the amplitude fades rather than snapping unless opts.immediate. */
@@ -454,6 +466,7 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
         landmark,
         season: env.season,
         ambient: scene.ambient.state,
+        wildlife: scene.wildlife.state,
         style: styleId,
         styleParams: env.artStyle.params,
         parallax: {
@@ -474,6 +487,8 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
     },
     destroy() {
       stop();
+      unbindWildlife();
+      scene.resetWildlife();
       for (const layer of styleLayers.values()) layer.style?.destroy?.();
       styleLayers.clear();
       window.removeEventListener('resize', resize);
