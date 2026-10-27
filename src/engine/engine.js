@@ -287,10 +287,13 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
       solarElevation: elevation,
       sunRising: !alias && sunRising === true,
     };
-    const changed = next.scene !== target.scene || next.condition !== target.condition
+    const sceneChanged = next.scene !== target.scene || next.condition !== target.condition;
+    const changed = sceneChanged
       || Math.abs(next.solarElevation - target.solarElevation) > ELEVATION_EPSILON;
     if (next.scene !== target.scene) scene.meteors.reset();
-    if (changed) scene.resetWildlife();
+    // Solar refreshes only retarget the lighting. Preserve flock/reaction lifetimes
+    // and the rare gust clock; ambient's elevation gate fades birds out of dusk.
+    if (sceneChanged) scene.resetWildlife();
     target = next;
     if (immediate) {
       env.wind = target.windSpeed;
