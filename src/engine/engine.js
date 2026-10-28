@@ -292,7 +292,7 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
       || Math.abs(next.solarElevation - target.solarElevation) > ELEVATION_EPSILON;
     if (next.scene !== target.scene) scene.meteors.reset();
     // Solar refreshes only retarget the lighting. Preserve flock/reaction lifetimes
-    // and the rare gust clock; ambient's elevation gate fades birds out of dusk.
+    // and the rare gust clock; birds remain available through lighting transitions.
     if (sceneChanged) scene.resetWildlife();
     target = next;
     if (immediate) {
@@ -421,6 +421,8 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
 
   return {
     setWeather,
+    // Read-only geometry probe for checking pointer landings against visible water.
+    waterContains(x, y) { return scene.wildlife.contains(x, y); },
     /** Art style by id (styles/index.js): palette, scene parameters and overlay passes cross-fade unless opts.immediate. */
     setStyle(id, { immediate = false } = {}) { setStyle(id, immediate); },
     /** Mid-ground landmark silhouette: 'stockholm' | 'nordic' | null (off). Cross-fades on change. */

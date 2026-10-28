@@ -1,4 +1,4 @@
-import { rgba } from './color.js';
+import { rgba, parseColor } from './color.js';
 
 // The lower edge is the same piecewise-linear contour used to paint the hills.
 export function waterContains(water, x, y) {
@@ -31,55 +31,64 @@ export function bindWildlifeInput(target, canvas, enabled, react) {
 }
 
 export function createWaterWildlife(random = Math.random) {
-  let water = null, fish = null, ripples = [], cooldown = 0, wait = 10 + random() * 15;
+  let water = null, fishes = [], ripples = [], cooldown = 0, wait = 10 + random() * 15;
   let blocked = false;
-  const reset = () => { water = null; fish = null; ripples = []; cooldown = 0; wait = 10 + random() * 15; };
+  const reset = () => { water = null; fishes = []; ripples = []; cooldown = 0; wait = 10 + random() * 15; };
   function splash(x, y) {
     ripples.push({ x, y, age: 0 });
     if (ripples.length > 3) ripples.shift();
   }
-  function jump(x, y) { fish = { x, y, age: 0, dir: random() < .5 ? -1 : 1 }; splash(x, y); }
+  function jump(x, y) { fishes.push({ x, y, age: 0, dir: random() < .5 ? -1 : 1 }); splash(x, y); }
   return {
     reset,
+    contains(x, y) { return waterContains(water, x, y); },
     setWater(value) { water = value; },
-    get state() { return { fish: fish && { ...fish }, ripples: ripples.map(r => ({ ...r })), cooldown }; },
+    get state() { return { fish: fishes[0] ? { ...fishes[0] } : null, fishes: fishes.map(fish => ({ ...fish })), ripples: ripples.map(r => ({ ...r })), cooldown }; },
     interact(x, y) {
       if (blocked || cooldown > 0 || !waterContains(water, x, y)) return false;
       cooldown = 1.8;
-      if (!fish) jump(x, y);
-      else splash(x, y);
+      jump(x, y);
       return true;
     },
     update(dt, env) {
       blocked = !!(env.reducedMotion || env.paused || env.hidden || env.ambient?.water === false);
-      if (env.reducedMotion || env.ambient?.water === false) { fish = null; ripples = []; }
+      if (env.reducedMotion || env.ambient?.water === false) { fishes = []; ripples = []; }
       if (blocked || dt <= 0) return;
       cooldown = Math.max(0, cooldown - dt);
       ripples = ripples.filter(r => (r.age += dt) < 2.4);
-      if (fish) {
+      fishes = fishes.filter(fish => {
         fish.age += dt;
-        if (fish.age >= 1.15) {
+        if (fish.age >= 1.8) {
           if (waterContains(water, fish.x, fish.y)) splash(fish.x, fish.y);
-          fish = null;
+          return false;
         }
-      }
+        return true;
+      });
       wait -= dt;
       if (wait <= 0) {
-        wait = 18 + random() * 24;
-        for (let i = 0; i < 12 && !fish; i++) {
-          const x = random() * (water?.width ?? 0);
-          const y = water ? water.shore + 3 + random() * Math.max(0, water.bottom(x) - water.shore - 6) : 0;
-          if (waterContains(water, x, y)) jump(x, y);
+        // Scan the visible contour instead of gambling on twelve random pixels.
+        // Margin protects the body/tail from the foreground hills and viewport edge.
+        const sites = [];
+        if (water && water.alpha > .05) {
+          for (let x = 24; x < water.width - 24; x += 4) {
+            const bottom = Math.min(water.bottom(x - 18), water.bottom(x), water.bottom(x + 18));
+            if (bottom > water.shore + 14) sites.push({ x, y: water.shore + Math.min(14, (bottom - water.shore) / 2) });
+          }
         }
+        if (sites.length && !fishes.length) {
+          const site = sites[Math.min(sites.length - 1, Math.floor(random() * sites.length))];
+          jump(site.x, site.y);
+          wait = 18 + random() * 24;
+        } else wait = 1; // Retry promptly if the water is temporarily unavailable.
       }
     },
     draw(ctx, env) {
       if (!water || water.alpha <= .05 || env.ambient?.water === false) return;
-      if (!fish && !ripples.length && !env.reducedMotion) return;
-      const scale = Math.max(.65, Math.min(1.3, env.width / 1200));
+      if (!fishes.length && !ripples.length && !env.reducedMotion) return;
+      const scale = Math.max(1, Math.min(1.3, env.width / 1200));
       const painterly = env.artStyle.id === 'vangogh';
       ctx.save();
-      ctx.strokeStyle = rgba(env.theme.sky.bottom, .65 * water.alpha);
+      ctx.strokeStyle = rgba(parseColor(env.dayMix < .5 ? '#bfdce4' : '#315d68'), .8 * water.alpha);
       ctx.lineWidth = painterly ? 2.1 : 1;
       // Clip surface effects to the actual visible water, including both hills.
       ctx.beginPath(); ctx.moveTo(0, water.shore); ctx.lineTo(water.width, water.shore);
@@ -102,17 +111,23 @@ export function createWaterWildlife(random = Math.random) {
         }
       }
       ctx.restore();
-      if (!fish || !waterContains(water, fish.x, fish.y)) return;
-      const t = fish.age / 1.15;
-      ctx.save();
-      ctx.translate(fish.x, fish.y - Math.sin(Math.PI * t) * 20 * scale);
-      ctx.rotate(fish.dir * (t - .5) * 1.8);
-      ctx.fillStyle = rgba(env.theme.skyline, .85 * water.alpha);
-      ctx.strokeStyle = rgba(env.theme.sky.bottom, .7 * water.alpha);
-      ctx.lineWidth = painterly ? 2 : .8;
-      ctx.beginPath(); ctx.ellipse(0, 0, 5 * scale, 2 * scale, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(-4 * scale, 0); ctx.lineTo(-8 * scale, -3 * scale); ctx.lineTo(-8 * scale, 3 * scale); ctx.closePath(); ctx.fill();
-      ctx.restore();
+      for (const fish of fishes) {
+        if (!waterContains(water, fish.x, fish.y)) continue;
+        const t = fish.age / 1.8;
+        ctx.save();
+        ctx.translate(fish.x, fish.y - Math.sin(Math.PI * t) * 48 * scale);
+        ctx.rotate(fish.dir * (t - .5) * 1.8);
+        ctx.fillStyle = rgba(parseColor(env.dayMix < .5 ? '#9fbfc8' : '#264b52'), water.alpha);
+        ctx.strokeStyle = rgba(parseColor('#e1e9d9'), .95 * water.alpha);
+        ctx.lineWidth = painterly ? 2 : 1.2;
+        ctx.beginPath(); ctx.ellipse(0, 0, 10 * scale, 4 * scale, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(-8 * scale, 0); ctx.lineTo(-16 * scale, -6 * scale); ctx.lineTo(-16 * scale, 6 * scale); ctx.closePath(); ctx.fill(); ctx.stroke();
+        // Dorsal fin and eye distinguish a fish from a floating dash.
+        ctx.beginPath(); ctx.moveTo(-3 * scale, -3 * scale); ctx.lineTo(0, -8 * scale); ctx.lineTo(4 * scale, -3 * scale); ctx.fill();
+        ctx.fillStyle = '#172d35';
+        ctx.beginPath(); ctx.arc(6 * scale, -scale, 1.2 * scale, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      }
     },
   };
 }

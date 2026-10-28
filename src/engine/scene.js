@@ -297,7 +297,7 @@ export function createScene() {
       }
       // Depth layers, back to front. Each shifts by env.parallax[layer] px on top of its own scroll.
       const shift = env.parallax ?? NO_SHIFT;
-      ambient.drawBirds(ctx, env); // dusk birds: in front of the clouds, behind every hill
+      ambient.drawBirds(ctx, env); // birds: in front of the clouds, behind every hill
       drawHill(ctx, env, 0, shift[0], rimGrad); // distant: far ridge
       skyline.draw(ctx, env, rimGrad, shift[0], light.skylineRim); // distant: town between far ridge and mid hill
       ambient.drawWater(ctx, env, { shoreY: skyline.shore * env.height, alpha: skyline.waterAlpha, shift: shift[0] });

@@ -52,8 +52,7 @@ test('successive solar minute updates preserve flocks and allow a complete gust'
   assert.ok(started && completed, 'gust must start and finish despite successive minute refreshes');
   engine.setWeather({ ...weather(240), solarElevation: -10 });
   for (let i = 0; i < 200; i++) { now += 100; frame(now); }
-  assert.ok(engine.state.ambient.birdGate < .01, 'leaving dusk fades birds');
-  assert.deepEqual(engine.state.ambient.birdHits, [], 'faded birds cannot be tapped');
+  assert.ok(engine.state.ambient.birdGate > .99, 'birds remain available after dusk');
   engine.setWeather({ ...weather(240), scene: 'eclipse' });
   assert.equal(engine.state.ambient.birds, 0, 'real scene change resets flock');
   assert.deepEqual(engine.state.wildlife.ripples, []);

@@ -1,6 +1,6 @@
 import { rgba, parseColor } from './color.js';
 
-// Ambient life (#19) and micro-motion (#23): dusk birds, falling leaves/petals, foreground grass sway and
+// Ambient life (#19) and micro-motion (#23): birds, falling leaves/petals, foreground grass sway and
 // water glints. Owned by the scene (scene.js), which calls the draw hooks at the right depth:
 //   drawBirds   after the clouds, before the far ridge (sky depth, slight parallax)
 //   drawWater   right after the skyline (distant layer; the mid hill covers the band's foot)
@@ -52,16 +52,15 @@ export function seasonFor(lat, date = new Date()) {
 }
 
 // ---------------------------------------------------------------------------------------------------------
-// Birds: 0-1 loose flocks crossing at dusk.
+// Birds: 0-1 loose flocks crossing throughout the day and night.
 
 const BIRD_PARALLAX = 0.15; // between the clouds (0.05-0.17) and the far ridge (0.25)
 const BIRD_INK = parseColor('#1a1830');
-// Condition scale: nobody flies through heavy rain or snow.
-const BIRD_CONDITION = { clear: 1, clouds: 1, wind: 0.6, fog: 0.4, rain: 0, snow: 0 };
+// Keep a restrained flock observable in every weather condition.
+const BIRD_CONDITION = { clear: 1, clouds: 1, wind: 0.85, fog: 0.7, rain: 0.7, snow: 0.7 };
 
 function birdGate(env) {
-  const e = env.solarElevation ?? 45;
-  return (1 - smoothstep(5, 8, e)) * smoothstep(-6, -4, e) * (BIRD_CONDITION[env.condition] ?? 1);
+  return BIRD_CONDITION[env.condition] ?? 1;
 }
 
 function makeFlock(env, s) {
@@ -76,7 +75,7 @@ function makeFlock(env, s) {
     birds.push({
       ox: -dir * rank * rand(14, 22) * s * size + rand(-4, 4) * s,
       oy: side * rank * rand(8, 12) * s * size + rand(-4, 4) * s,
-      span: rand(7, 11) * s * size,
+      span: rand(20, 27) * Math.max(.85, s) * (far ? .9 : 1),
       hz: rand(2.5, 3.5),
       flap: rand(1.2, 2),
       glide: rand(1.5, 3),
@@ -164,7 +163,7 @@ export function createAmbient() {
   const flags = Object.fromEntries(AMBIENT_KEYS.map((k) => [k, true]));
   // Birds
   let flock = null;
-  let flockWait = rand(3, 8); // first flock soon after dusk begins, then every 18-40 s
+  let flockWait = rand(3, 8); // first flock soon after arrival, then every 18-40 s
   let birdAlpha = 0;
   let scatter = 0, birdCooldown = 0, funnyWait = rand(65, 110), funny = 0;
   let birdHits = [];
@@ -357,8 +356,8 @@ export function createAmbient() {
       const color = mixRgb(BIRD_INK, sky, flock.far ? 0.45 : 0.25);
       const t = flock.t;
       const baseY = flock.y0 + Math.sin((TAU * t) / flock.bobP) * flock.bobA;
-      ctx.strokeStyle = rgba(color, 0.75 * birdAlpha);
-      ctx.lineWidth = 1.3 * Math.max(0.8, s) * (flock.far ? 0.85 : 1);
+      ctx.strokeStyle = rgba(color, .95 * birdAlpha);
+      ctx.lineWidth = 2 * Math.max(0.9, s) * (flock.far ? 0.85 : 1);
       ctx.lineCap = env.artStyle.id === 'japanese' ? 'butt' : 'round';
       if (env.artStyle.id === 'vangogh') ctx.lineWidth *= 1.5;
       ctx.beginPath();
@@ -379,6 +378,15 @@ export function createAmbient() {
         ctx.quadraticCurveTo(x - half * 0.45, y - b.span * 0.12 - wing * b.span * 0.08, x, y);
         ctx.quadraticCurveTo(x + half * 0.45, y - b.span * 0.12 - wing * b.span * 0.08, x + half, tipY);
       }
+      // A narrow moonlit outline keeps the wing silhouette legible on dark sky.
+      const inkWidth = ctx.lineWidth;
+      if (env.dayMix < .5) {
+        ctx.strokeStyle = rgba(parseColor('#c5d8df'), .7 * birdAlpha);
+        ctx.lineWidth = inkWidth + 1.8;
+        ctx.stroke();
+      }
+      ctx.lineWidth = inkWidth;
+      ctx.strokeStyle = rgba(color, .95 * birdAlpha);
       ctx.stroke();
       ctx.lineCap = 'butt';
     },
