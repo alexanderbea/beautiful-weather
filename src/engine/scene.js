@@ -1,3 +1,4 @@
+import { drawHolidayScenery } from './holidayScenery.js';
 import { createWaterWildlife } from './wildlife.js';
 import { createMeteors } from './meteors.js';
 import { drawEclipse } from './eclipse.js';
@@ -277,6 +278,8 @@ export function createScene() {
       if (env.scene === 'eclipse') drawEclipse(ctx, env);
       meteors.drawSky(ctx, env);
     },
+
+    drawHoliday(ctx, env) { drawHolidayScenery(ctx, env, ridge); },
 
     drawLand(ctx, env) {
       const { width: w } = env;

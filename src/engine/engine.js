@@ -1,3 +1,4 @@
+import { holidayFor, localDateKey } from './holidays.js';
 import { bindWildlifeInput } from './wildlife.js';
 import { rgba, lerpDeep } from './color.js';
 import { THEMES, resolveTheme, deepMerge } from './themes.js';
@@ -68,6 +69,16 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
     // Art style (styles/index.js): lerped scene parameters plus the sky passes the scene calls.
     artStyle: { id: DEFAULT_STYLE_ID, params: STYLE_PARAMS, skyBase: null, skyTop: null },
   };
+  let calendarKey;
+  function refreshCalendar() {
+    const now = new Date();
+    const key = localDateKey(now);
+    if (key === calendarKey) return false;
+    calendarKey = key;
+    env.holiday = holidayFor(now);
+    return true;
+  }
+  refreshCalendar();
   // Ambient life dev flags: ?ambient=-birds,-grass / ?ambient=leaves / ?ambient=0, ?season=autumn.
   const ambientParams = parseAmbientParams();
   let seasonOverride = ambientParams.season;
@@ -303,6 +314,7 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
   }
 
   function update(dt) {
+    refreshCalendar();
     env.dt = dt;
     const staticMeteors = reducedMotion && target.scene === 'meteors';
     if (!staticMeteors) env.time += dt;
@@ -356,6 +368,7 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
       ctx.fillStyle = rgba(theme.shade, (1 - theme.ambient) * 0.8);
       ctx.fillRect(0, 0, w, h);
     }
+    scene.drawHoliday(ctx, env);
     for (const layer of layers.values()) {
       if (!layer.effect.draw) continue;
       env.weight = ease(layer.weight);
@@ -396,7 +409,25 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
     cancelAnimationFrame(rafId);
   }
 
+  function onCalendarReturn() {
+    if (refreshCalendar() && env.theme) draw();
+  }
+
+  // Also refresh a manually paused canvas at midnight. A short upper bound notices
+  // clock/time-zone changes without assuming that every local day lasts 24 hours.
+  let calendarTimer;
+  function scheduleCalendar() {
+    const now = new Date();
+    const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    calendarTimer = setTimeout(() => {
+      if (!document.hidden) onCalendarReturn();
+      scheduleCalendar();
+    }, Math.max(1, Math.min(60000, midnight - now)));
+  }
+  scheduleCalendar();
+
   function onVisibility() {
+    if (!document.hidden) onCalendarReturn();
     if (document.hidden) { running = false; cancelAnimationFrame(rafId); }
     else if (!manualPause) start();
   }
@@ -405,6 +436,8 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
     () => running && !document.hidden && !reducedMotion,
     (x, y) => scene.interact(x, y, env));
 
+  window.addEventListener('focus', onCalendarReturn);
+  window.addEventListener('pageshow', onCalendarReturn);
   window.addEventListener('resize', resize);
   document.addEventListener('visibilitychange', onVisibility);
   window.addEventListener('pointermove', onPointerMove, { passive: true });
@@ -470,6 +503,7 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
         effects: [...layers.keys()],
         landmark,
         season: env.season,
+        holiday: env.holiday,
         ambient: scene.ambient.state,
         wildlife: scene.wildlife.state,
         style: styleId,
@@ -492,10 +526,13 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
     },
     destroy() {
       stop();
+      clearTimeout(calendarTimer);
       unbindWildlife();
       scene.resetWildlife();
       for (const layer of styleLayers.values()) layer.style?.destroy?.();
       styleLayers.clear();
+      window.removeEventListener('focus', onCalendarReturn);
+      window.removeEventListener('pageshow', onCalendarReturn);
       window.removeEventListener('resize', resize);
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pointermove', onPointerMove);
