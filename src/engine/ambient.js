@@ -55,6 +55,9 @@ export function seasonFor(lat, date = new Date()) {
 // Birds: 0-1 loose flocks crossing throughout the day and night.
 
 const BIRD_PARALLAX = 0.15; // between the clouds (0.05-0.17) and the far ridge (0.25)
+const BIRD_GUST_SECONDS = 4;
+// sin² has zero velocity at both ends; peak opposing velocity exceeds cruise.
+const gustDistance = flock => flock.speed * 2.4;
 const BIRD_INK = parseColor('#1a1830');
 // Keep a restrained flock observable in every weather condition.
 const BIRD_CONDITION = { clear: 1, clouds: 1, wind: 0.85, fog: 0.7, rain: 0.7, snow: 0.7 };
@@ -195,9 +198,6 @@ export function createAmbient() {
     birdCooldown = Math.max(0, birdCooldown - dt);
     funny = Math.max(0, funny - dt);
     funnyWait -= dt;
-    if (funnyWait <= 0 && flock && flock.birds.length > 1 && gate > .2) {
-      funny = 4; funnyWait = rand(90, 160);
-    }
     birdAlpha += (gate - birdAlpha) * (1 - Math.exp(-dt / 1.5));
     if (flock) {
       flock.t += dt;
@@ -209,6 +209,27 @@ export function createAmbient() {
       if (flockWait <= 0) {
         flock = makeFlock(env, s);
         flockWait = rand(18, 40);
+      }
+    }
+    // An overdue event stays pending through gaps, entry and late exits. Reserve
+    // the entire trajectory, not just the centre at the instant the timer expires.
+    // Include wings, drift, possible tap scatter and the full camera excursion.
+    if (funnyWait <= 0 && !funny && !scatter && flock && flock.birds.length > 1 && gate > .2) {
+      const b = flock.birds.at(-1);
+      const x = flock.x + b.ox;
+      const end = x + flock.dir * flock.speed * BIRD_GUST_SECONDS;
+      const lag = gustDistance(flock);
+      // Camera bound: .024 width × 1.4 max input × .15 bird depth < .006 width.
+      const pad = b.span / 2 + 3 * s + 24 * s + env.width * .006 + 4;
+      const low = Math.min(x, end) - (flock.dir > 0 ? lag : 0) - pad;
+      const high = Math.max(x, end) + (flock.dir < 0 ? lag : 0) + pad;
+      const yPad = flock.bobA + 2 * s + 24 * s + b.span * .35 + 4;
+      const y = flock.y0 + b.oy;
+      const endY = y + flock.climb * BIRD_GUST_SECONDS;
+      if (low >= 0 && high <= env.width && Math.min(y, endY) >= yPad
+        && Math.max(y, endY) + yPad <= env.height) {
+        funny = BIRD_GUST_SECONDS;
+        funnyWait = rand(90, 160);
       }
     }
   }
@@ -364,7 +385,7 @@ export function createAmbient() {
       for (const b of flock.birds) {
         const drift = Math.sin((TAU * t) / b.driftP + b.driftPh) * 3 * s;
         const spread = Math.sin(Math.PI * scatter / 3) * 24 * s;
-        const lag = b === flock.birds[flock.birds.length - 1] ? Math.sin(Math.PI * funny / 4) * 32 * s : 0;
+        const lag = b === flock.birds[flock.birds.length - 1] ? Math.sin(Math.PI * funny / BIRD_GUST_SECONDS) ** 2 * gustDistance(flock) : 0;
         const x = flock.x + b.ox + shift + drift + Math.cos(b.phase) * spread - flock.dir * lag;
         const y = baseY + b.oy + Math.cos((TAU * t) / b.driftP + b.driftPh) * 2 * s + Math.sin(b.phase) * spread;
         birdHits.push({ x, y });
