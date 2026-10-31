@@ -6,6 +6,9 @@
  * @typedef {{
  *   condition: Condition,
  *   temperatureC: number,
+ *   feelsLikeC: number|null,
+ *   forecast: Array<{time: number, temperatureC: number|null, precipitationMm: number|null, probability: number|null}>,
+ *   forecastSource: string|null,
  *   windSpeed: number,      // m/s
  *   humidity?: number,      // 0-100
  *   isDay: boolean,
@@ -29,6 +32,9 @@ export function normalizeWeather(input) {
   return {
     condition,
     temperatureC: Number.isFinite(input.temperatureC) ? input.temperatureC : 0,
+    feelsLikeC: Number.isFinite(input.feelsLikeC) ? input.feelsLikeC : null,
+    forecast: input.forecast ?? [],
+    forecastSource: input.forecastSource ?? null,
     windSpeed: Math.max(0, Number.isFinite(input.windSpeed) ? input.windSpeed : 0),
     humidity: Number.isFinite(input.humidity) ? input.humidity : undefined,
     isDay: NIGHT_ONLY.includes(condition) ? false : input.isDay !== false,

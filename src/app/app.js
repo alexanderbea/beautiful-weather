@@ -56,6 +56,8 @@ export async function startApp() {
   let dataNote = '';
   let updatedAt = null; // epoch ms of the last successful refresh
   let place = null;
+  let stale = false;
+  let refreshId = 0;
 
   const initialOverrides = {
     condition: CONDITIONS.includes(params.get('condition')) ? params.get('condition') : null,
@@ -121,24 +123,31 @@ export async function startApp() {
     const sceneNote = atmosphere === 'meteors' ? 'Meteor shower · night demo'
       : atmosphere === 'eclipse' ? 'eclipse · imagined scene' : '';
     dev.sync();
-    overlay.render({ weather: w, isDay: atmosphere === 'meteors' ? false : w.isDay, note: [locationNote, dataNote, sceneNote, overridden ? 'dev override' : ''].filter(Boolean).join(' · ') });
+    overlay.render({ weather: live, source, updatedAt, stale, isDay: atmosphere === 'meteors' ? false : w.isDay, note: [locationNote, dataNote, sceneNote, overridden ? 'dev override' : ''].filter(Boolean).join(' · ') });
   }
 
   /** Fetches the current weather for `place`. Never throws: a failed refresh keeps the last data. */
   async function refresh() {
-    try {
-      const { weather, source: used, error } = await service.getCurrent(place);
-      live = weather;
-      source = used;
-      updatedAt = Date.now();
-      // Canned numbers are never passed off as a live reading, whatever the reason for using them.
-      dataNote = used === 'mock' ? (error ? 'live weather unavailable, showing sample data' : 'sample data') : '';
-      apply();
-    } catch (error) {
-      console.warn('[weather] refresh failed:', error);
-      if (live) { dataNote = 'weather update failed, showing last reading'; apply(); }
-    }
+    const id = ++refreshId;
+    overlay.loading(place);
+    const result = await service.getCurrent(place);
+    if (id !== refreshId) return;
+    live = result.weather;
+    source = result.source;
+    updatedAt = result.updatedAt;
+    stale = !!result.stale;
+    dataNote = result.error ? (live ? 'Update failed · showing last reading' : 'Live weather unavailable') : '';
+    if (live) apply();
+    else overlay.render({ weather: null, note: [locationNote, dataNote].filter(Boolean).join(' · ') });
   }
+  overlay.onRefresh = () => { if (place) refresh(); };
+  overlay.onLocation = loc => {
+    place = loc;
+    live = null;
+    locationNote = '';
+    overlay.render({ weather: null });
+    refresh();
+  };
 
   const dev = createDevControls(document.getElementById('dev'), {
     initial: { ...initialOverrides, parallax: parallaxOn },
@@ -149,9 +158,7 @@ export async function startApp() {
       apply();
     },
     onLocation(loc) {
-      place = loc;
-      locationNote = '';
-      refresh();
+      overlay.onLocation(loc);
     },
     getStats: () => {
       const st = engine.state;
@@ -204,8 +211,8 @@ export async function startApp() {
     place = pinned;
   } else {
     const result = await getDeviceLocation();
-    place = result.location;
-    if (result.fallback) locationNote = `location ${result.reason}, using ${place.name}`;
+    if (!place) place = result.location;
+    if (result.fallback && place.name === result.location.name) locationNote = `location ${result.reason}, using ${place.name}`;
   }
 
   await refresh();
@@ -213,7 +220,7 @@ export async function startApp() {
   apply({ immediate: true });
   setInterval(() => { if (!document.hidden) refresh(); }, REFRESH_MS);
   setInterval(() => { if (!document.hidden) tickSun(); }, SUN_TICK_MS);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) tickSun(); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { tickSun(); if (!updatedAt || Date.now() - updatedAt >= REFRESH_MS) refresh(); } });
 
   // Handy for console experiments, e.g. __bw.engine.setThemes({ rain: { day: { sky: { top: '#000' } } } })
   window.__bw = { engine, audio, service, refresh, style: styleState, get live() { return live; }, get updatedAt() { return updatedAt; } };

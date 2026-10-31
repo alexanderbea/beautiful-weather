@@ -37,16 +37,18 @@ assert.equal(createWeatherService({ apiKey: null }).primaryId, 'open-meteo', 'no
 assert.equal(createWeatherService({ apiKey: null, useMock: true }).primaryId, 'mock', '?source=mock -> mock');
 assert.equal(createWeatherService({ apiKey: 'k' }).primaryId, 'openweathermap', 'key -> OpenWeather');
 
-// Failure of the live source falls back to mock and *says so* via source/error.
+// Failure without cached data is explicitly unavailable.
 const failing = createWeatherService({ source: { id: 'boom', async fetchCurrent() { throw new Error('down'); } } });
 const fb = await failing.getCurrent(stockholm);
-assert.equal(fb.source, 'mock');
+assert.equal(fb.source, 'boom');
+assert.equal(fb.weather, null);
 assert.ok(fb.error);
 console.log('wiring: ok');
 
 // --- live request --------------------------------------------------------------
 const service = createWeatherService({ apiKey: null });
 const a = await service.getCurrent(DEFAULT_LOCATION);
+assert.ok(a.weather, `Live API unavailable: ${a.error?.message}`);
 assert.equal(a.source, 'open-meteo', 'live reading must come from the real API');
 assert.ok(Number.isFinite(a.weather.temperatureC));
 assert.ok(a.weather.temperatureC > -40 && a.weather.temperatureC < 45, 'plausible');

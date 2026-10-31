@@ -119,3 +119,23 @@ html, body {
 .scene-picker { position: fixed; right: max(14px, env(safe-area-inset-right)); bottom: 64px; z-index: 5; padding: 8px 12px; border-radius: 18px; background: rgba(10,16,28,.8); color: #e8eef6; font-size: 12px; }
 .scene-picker select { font: inherit; color: inherit; background: #111b2b; border: 0; padding: 4px; border-radius: 5px; }
 .dev { z-index: 6; }
+
+/* Compact forecast stays in the sky; the landscape and bottom controls remain exposed. */
+.overlay { width: 390px; max-width: calc(100vw - 56px); padding: 16px; border-radius: 18px; background: rgba(9, 20, 35, .88); text-shadow: none; max-height: calc(100dvh - 150px); overflow-y: auto; }
+.overlay::before { display: none; }
+.overlay__temp { font-size: 58px; }
+.overlay__note { line-height: 1.45; }
+.forecast-controls { display: flex; align-items: center; gap: 10px; margin: 12px 0; pointer-events: auto; font-size: 12px; }
+.forecast-controls select, .forecast-controls button { font: inherit; color: white; background: #23374b; border: 1px solid #678; border-radius: 5px; padding: 6px 3px; min-height: 36px; }
+.forecast { pointer-events: auto; border-top: 1px solid #ffffff30; padding-top: 10px; }
+.forecast summary { cursor: pointer; font-size: 14px; font-weight: 600; }
+.forecast p { font-size: 13px; line-height: 1.4; margin: 10px 0; }
+.forecast__hours { display: flex; overflow-x: auto; gap: 8px; padding-bottom: 8px; scrollbar-width: thin; }
+.forecast__hour { flex: 0 0 104px; display: grid; gap: 6px; padding: 8px; border-radius: 8px; background: #ffffff0c; font-size: 12px; }
+.forecast__hour span:nth-child(2) { font-size: 20px; }
+.forecast :focus-visible, .forecast-controls :focus-visible { outline: 2px solid white; outline-offset: 2px; }
+@media (max-width: 600px) {
+  .overlay { top: 12px; left: 12px; padding: 12px; max-width: calc(100vw - 56px); }
+  .overlay__temp { font-size: 44px; }
+  .forecast-controls { gap: 6px; }
+}

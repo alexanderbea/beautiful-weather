@@ -10,16 +10,12 @@ export function resolveApiKey() {
   return import.meta.env?.VITE_WEATHER_API_KEY || null;
 }
 
-/**
- * Single entry point for weather data. Live by default: OpenWeather when a key is present,
- * otherwise the keyless Open-Meteo source. Canned mock data is only used when explicitly asked
- * for (`useMock`, i.e. ?source=mock) or as a last resort when the live request fails, and the
- * result's `source` says so, so the UI can label it as sample data.
- */
 export function createWeatherService({ apiKey = resolveApiKey(), source, useMock = false } = {}) {
   const mock = createMockSource();
   const primary = source ?? (useMock ? mock : apiKey ? createOpenWeatherSource({ apiKey }) : createOpenMeteoSource());
 
+  const cache = new Map();
+  const pending = new Map();
   async function withName(weather) {
     if (!weather.location.name) {
       const name = await reverseGeocode(weather.location).catch(() => null);
@@ -31,13 +27,21 @@ export function createWeatherService({ apiKey = resolveApiKey(), source, useMock
   return {
     primaryId: primary.id,
     async getCurrent(location) {
-      try {
-        return { weather: await withName(await primary.fetchCurrent(location)), source: primary.id };
-      } catch (error) {
-        if (primary === mock) throw error;
-        console.warn('[weather] live source failed, using mock:', error);
-        return { weather: await withName(await mock.fetchCurrent(location)), source: 'mock', error };
-      }
+      const key = `${location.lat},${location.lng}`;
+      if (pending.has(key)) return pending.get(key);
+      const request = (async () => {
+        try {
+          const result = { weather: await withName(await primary.fetchCurrent(location)), source: primary.id, updatedAt: Date.now() };
+          cache.set(key, result);
+          return result;
+        } catch (error) {
+          const previous = cache.get(key);
+          if (previous) return { ...previous, stale: true, error };
+          return { weather: null, source: primary.id, error };
+        } finally { pending.delete(key); }
+      })();
+      pending.set(key, request);
+      return request;
     },
   };
 }

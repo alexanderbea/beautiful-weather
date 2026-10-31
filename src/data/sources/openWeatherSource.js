@@ -1,3 +1,4 @@
+import { createOpenMeteoSource } from './openMeteoSource.js';
 import { normalizeWeather, solarElevation } from '../model.js';
 
 const ENDPOINT = 'https://api.openweathermap.org/data/2.5/weather';
@@ -18,6 +19,7 @@ export function mapCondition(code, windSpeed) {
 }
 
 export function parseOpenWeather(data, location) {
+  if (!Number.isFinite(data.main?.temp)) throw new Error('OpenWeather response has no current temperature');
   const code = data.weather?.[0]?.id ?? 800;
   const windSpeed = data.wind?.speed ?? 0;
   const now = (data.dt ?? Date.now() / 1000);
@@ -28,6 +30,7 @@ export function parseOpenWeather(data, location) {
   return normalizeWeather({
     condition: mapCondition(code, windSpeed),
     temperatureC: data.main?.temp,
+    feelsLikeC: data.main?.feels_like,
     windSpeed,
     humidity: data.main?.humidity,
     isDay,
@@ -43,9 +46,15 @@ export function createOpenWeatherSource({ apiKey, fetchImpl = fetch } = {}) {
     id: 'openweathermap',
     async fetchCurrent(location) {
       const url = `${ENDPOINT}?lat=${location.lat}&lon=${location.lng}&units=metric&appid=${encodeURIComponent(apiKey)}`;
-      const res = await fetchImpl(url, { cache: 'no-store' });
+      const res = await fetchImpl(url, { cache: 'no-store', signal: AbortSignal.timeout(12000) });
       if (!res.ok) throw new Error(`OpenWeather HTTP ${res.status}`);
-      return parseOpenWeather(await res.json(), location);
+      const weather = parseOpenWeather(await res.json(), location);
+      try {
+        const forecast = await createOpenMeteoSource({ fetchImpl }).fetchCurrent(location);
+        weather.forecast = forecast.forecast;
+        weather.forecastSource = forecast.forecastSource;
+      } catch { /* Current reading remains usable when the forecast is unavailable. */ }
+      return weather;
     },
   };
 }

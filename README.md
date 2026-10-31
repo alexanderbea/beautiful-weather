@@ -12,7 +12,8 @@ npm run build                   # static bundle in dist/
 
 With zero config, the app shows live weather from the keyless Open-Meteo API; set an
 OpenWeather key (below) to use OpenWeather instead. Canned sample data is only shown with
-`?source=mock` or when the live request fails, and the overlay says "sample data" whenever it is.
+`?source=mock`, explicitly labeled as sample data. Failed requests retain a stale reading for
+the same city, or show unavailable when no successful reading exists.
 The reading refreshes every 10 minutes while the tab is visible. If geolocation is denied or
 unavailable, it falls back to Stockholm.
 
@@ -80,10 +81,50 @@ Key lookup order (`src/data/weatherService.js`):
 
 With no key, the keyless Open-Meteo `/v1/forecast?current=...` endpoint is used
 (`src/data/sources/openMeteoSource.js`). With a key, the app calls the OpenWeather
-`/data/2.5/weather` endpoint and uses `main.temp` (the current reading). On any HTTP or parse error it
-falls back to mock data and shows a "sample data" note in the overlay. `?source=mock` forces the
+`/data/2.5/weather` endpoint and uses `main.temp` and `main.feels_like`. On HTTP or parse errors,
+the last successful reading for that location is retained and marked stale. `?source=mock` forces the
 canned data for screenshots. `node tests/weather-source-smoke.js` checks the parsers, the source
 selection and a real request.
+
+## Day-ahead forecast
+
+The compact overlay shows current temperature, feels-like, units, source, fetch time and provider
+data time. Its next-24-hours section scrolls horizontally and starts collapsed on phone widths.
+City selection (Stockholm, London, Tokyo, New York) and retry remain available after denied
+geolocation or network failure. Coordinates are shown when no city name is known. The unit
+selector can change the initial country/URL preference. Weather values remain real when art,
+scene or developer controls change the landscape.
+
+Open-Meteo's existing request now includes apparent temperature and three hourly variables:
+temperature, precipitation probability and precipitation amount. Three UTC calendar days cover
+the next 24 hours across midnight. The UI shows hourly output, not minute-level predictions;
+amounts include rain/snow water equivalent and cover the preceding hour. Times are explicitly UTC.
+Missing values stay missing; incomplete precipitation coverage cannot produce an all-day dry claim.
+Current Open-Meteo values are model-based, with 15-minute time steps, not station observations.
+See the [provider documentation](https://open-meteo.com/en/docs).
+
+The existing ten-minute refresh remains. There was no persistent weather cache: successful
+readings are now retained in memory per coordinate pair, with concurrent requests deduplicated.
+Failures never substitute sample weather. Data is marked stale on request failure, after 30 minutes
+without a successful fetch, or when the current provider timestamp is over two hours old.
+Returning to a hidden tab triggers an overdue refresh. Reloading clears the in-memory cache.
+Requests time out after 12 seconds each. An unavailable forecast does not invalidate usable current
+OpenWeather data.
+
+**API cost:** no new credentials or paid endpoint. The default Open-Meteo path still makes one
+request per refresh (six per visible hour), with a larger payload. The optional OpenWeather path
+keeps its existing current request and adds one keyless Open-Meteo request per refresh; no
+OpenWeather forecast subscription is used. Manual refreshes/city changes add requests. The
+[Open-Meteo free tier](https://open-meteo.com/en/pricing) is for non-commercial use, limited to
+10,000 calls/day and without an uptime guarantee. Commercial deployment needs a licensing review;
+this feature does not purchase or configure a plan.
+
+Verification: `node --test tests/*.test.js`, `node tests/weather-source-smoke.js` (network access
+required), `npm run build`, and `git diff --check`. `tests/forecast-browser.js` exports a Playwright
+page test for loading, denied location, hourly rows, units, scrolling, stale data, city isolation
+and retry. It uses intercepted fixtures and should run in a disposable browser context.
+Physical-phone wildlife acceptance and a natural gust overlapping a minute update are separate
+checks; forecast tests do not complete them.
 
 ## Structure
 
