@@ -28,6 +28,11 @@ export default async function verifyForecast(page) {
   check(requested, 'Existing provider request used');
   check((await page.locator('[data-el=note]').innerText()).includes('denied'), 'Denied location explained');
   check((await page.locator('[data-el=place]').innerText()) === 'Stockholm', 'City fallback');
+  check(await page.getByLabel('Choose a city').inputValue() === 'Stockholm', 'Fallback selector');
+  const status = await page.locator('#overlay [data-el=status]').innerText();
+  check(status.includes('Europe/Stockholm') && !/\b(AM|PM)\b/.test(status), '24-hour local status');
+  check((await page.locator('[data-el=rain]').textContent()).includes('Europe/Stockholm'), 'Local precipitation zone');
+  check(!/\b(AM|PM)\b/.test(await page.locator('[data-el=hours]').textContent()), '24-hour rows');
   check(await page.locator('.forecast__hour').count() === 24, '24 hourly rows');
   check((await page.locator('[data-el=rain]').textContent()).includes('Precipitation forecast in the hour'), 'Hourly precipitation window');
   await page.getByLabel('Temperature units').selectOption('F');
@@ -42,11 +47,24 @@ export default async function verifyForecast(page) {
   await page.getByLabel('Choose a city').selectOption('Tokyo');
   await page.waitForFunction(() => document.querySelector('#overlay [data-el=status]')?.textContent.includes('unavailable'));
   check(await page.locator('[data-el=tempValue]').innerText() === '—', 'New city cannot display old city reading');
+  check(await page.getByLabel('Choose a city').inputValue() === 'Tokyo', 'Failed city remains selected with unavailable weather');
+  check(await page.locator('[data-el=place]').innerText() === 'Tokyo', 'Failed city label');
   fail = false;
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('#overlay [data-el=status]')?.textContent.includes('Open-Meteo · Updated'));
   check(await page.locator('[data-el=place]').innerText() === 'Tokyo', 'Retry recovers selected city');
+  check((await page.locator('#overlay [data-el=status]').innerText()).includes('Asia/Tokyo'), 'Successful city changes timezone');
   check(!await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), 'No page overflow');
+  await page.evaluate(async () => {
+    const { createOverlay } = await import('/src/app/overlay.js');
+    const root = document.createElement('div');
+    const overlay = createOverlay(root);
+    const weather = { ...window.__bw.live, location: { lat: 59.3293, lng: 18.0686 } };
+    overlay.loading(weather.location);
+    overlay.render({ weather, source: 'open-meteo', updatedAt: Date.now() });
+    if (root.querySelector('[data-el=city]').value !== '') throw Error('Device coordinates must not imply a preset');
+    if (!root.querySelector('[data-el=status]').textContent.includes('UTC')) throw Error('Unknown timezone must label UTC');
+  });
   await page.unroute('https://api.open-meteo.com/**');
   return 'Passed: loading, denied geolocation, 24 hours, precipitation, Fahrenheit, horizontal scroll, stale cache, city isolation, retry, overflow';
 }

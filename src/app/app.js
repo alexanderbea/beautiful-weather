@@ -211,8 +211,10 @@ export async function startApp() {
     place = pinned;
   } else {
     const result = await getDeviceLocation();
-    if (!place) place = result.location;
-    if (result.fallback && place.name === result.location.name) locationNote = `location ${result.reason}, using ${place.name}`;
+    if (!place) {
+      place = result.location;
+      if (result.fallback) locationNote = `location ${result.reason}, using ${place.name}`;
+    }
   }
 
   await refresh();

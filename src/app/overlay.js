@@ -1,14 +1,10 @@
+import { CITIES, selectedCity, locationTimeZone } from './cities.js';
+import { createTimeFormatter } from './time.js';
 import { formatCoords } from '../data/geocode.js';
 import { convertTemp, unitForCountry } from './units.js';
 import { nextHours, precipitationSummary, isStale } from './forecast.js';
 
 const LABELS = { clear: 'Clear', clouds: 'Cloudy', rain: 'Rain', snow: 'Snow', wind: 'Windy', fog: 'Fog', night: 'Clear night', 'night-rain': 'Rainy night' };
-const CITIES = {
-  Stockholm: { lat: 59.3293, lng: 18.0686, country: 'SE' },
-  London: { lat: 51.5074, lng: -0.1278, country: 'GB' },
-  Tokyo: { lat: 35.6762, lng: 139.6503, country: 'JP' },
-  'New York': { lat: 40.7128, lng: -74.006, country: 'US' },
-};
 export function createOverlay(root, { unit: pinnedUnit = null } = {}) {
   root.innerHTML = `
     <div class="overlay__place" data-el="place">Locating…</div>
@@ -25,11 +21,9 @@ export function createOverlay(root, { unit: pinnedUnit = null } = {}) {
   const el = Object.fromEntries([...root.querySelectorAll('[data-el]')].map(n => [n.dataset.el, n]));
   let unit = pinnedUnit;
   let last;
-  const time = ms => new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', timeZone: 'UTC', hourCycle: 'h23' }).format(ms);
-  const stamp = ms => new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }).format(ms);
   const api = {
     onLocation: null, onRefresh: null,
-    loading(location) { el.place.textContent = location?.name || (location ? formatCoords(location) : 'Locating…'); el.status.textContent = 'Loading weather…'; },
+    loading(location) { el.city.value = selectedCity(location); el.place.textContent = location?.name || (location ? formatCoords(location) : 'Locating…'); el.status.textContent = 'Loading weather…'; },
     render(state) {
       last = state;
       const { weather, note = '', updatedAt, stale, source } = state;
@@ -40,6 +34,8 @@ export function createOverlay(root, { unit: pinnedUnit = null } = {}) {
         el.rain.textContent = 'Forecast unavailable.'; el.hours.replaceChildren(); el.credit.textContent = '';
         return;
       }
+      el.city.value = selectedCity(weather.location);
+      const { zone, format: time } = createTimeFormatter(locationTimeZone(weather.location));
       el.place.textContent = weather.location.name || formatCoords(weather.location);
       const u = unit ?? unitForCountry(weather.location.country);
       el.unit.value = u;
@@ -47,9 +43,9 @@ export function createOverlay(root, { unit: pinnedUnit = null } = {}) {
       el.tempValue.textContent = convertTemp(weather.temperatureC, u); el.tempUnit.textContent = `°${u}`;
       el.feels.textContent = `Feels like ${temp(weather.feelsLikeC)}`;
       el.cond.textContent = `${LABELS[weather.condition]} · ${weather.windSpeed.toFixed(1)} m/s wind`;
-      el.status.textContent = source === 'mock' ? 'Sample data · not live weather' : `${source === 'openweathermap' ? 'OpenWeather' : 'Open-Meteo'} · ${stale || isStale(weather, updatedAt) ? 'Stale reading · ' : ''}Updated ${stamp(updatedAt)} UTC · data ${stamp(weather.observedAt)} UTC`;
+      el.status.textContent = source === 'mock' ? 'Sample data · not live weather' : `${source === 'openweathermap' ? 'OpenWeather' : 'Open-Meteo'} · ${stale || isStale(weather, updatedAt) ? 'Stale reading · ' : ''}Updated ${time(updatedAt)} · data ${time(weather.observedAt)} · ${zone}`;
       const hours = nextHours(weather.forecast);
-      el.rain.textContent = hours.length ? precipitationSummary(hours, time) : 'Hourly forecast unavailable.';
+      el.rain.textContent = hours.length ? `${precipitationSummary(hours, time)} (${zone})` : 'Hourly forecast unavailable.';
       el.hours.replaceChildren(...hours.map(h => {
         const cell = document.createElement('div'); cell.className = 'forecast__hour';
         const amount = Number.isFinite(h.precipitationMm) ? `${h.precipitationMm.toFixed(1)} mm` : '— mm';
@@ -57,7 +53,7 @@ export function createOverlay(root, { unit: pinnedUnit = null } = {}) {
         for (const text of [time(h.time), temp(h.temperatureC), `${chance} · ${amount}`]) { const line = document.createElement('span'); line.textContent = text; cell.append(line); }
         return cell;
       }));
-      el.credit.textContent = hours.length ? `${weather.forecastSource} · UTC times · rain/snow totals for preceding hour. Chance / amount; timing is approximate. Scroll for all hours.` : '';
+      el.credit.textContent = hours.length ? `${weather.forecastSource} · ${zone} · 24-hour times · rain/snow totals for preceding hour. Chance / amount; timing is approximate. Scroll for all hours.` : '';
     },
   };
   el.unit.onchange = () => { unit = el.unit.value; if (last) api.render(last); };

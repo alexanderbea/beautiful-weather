@@ -98,7 +98,7 @@ scene or developer controls change the landscape.
 Open-Meteo's existing request now includes apparent temperature and three hourly variables:
 temperature, precipitation probability and precipitation amount. Three UTC calendar days cover
 the next 24 hours across midnight. The UI shows hourly output, not minute-level predictions;
-amounts include rain/snow water equivalent and cover the preceding hour. Times are explicitly UTC.
+amounts include rain/snow water equivalent and cover the preceding hour. Times use 24-hour formatting in the preset city’s IANA timezone (Stockholm, London, Tokyo or New York), with dates and per-instant UTC offsets to distinguish midnight and repeated daylight-saving hours. Other locations without a known timezone explicitly use UTC. Provider timestamps remain UTC instants. The city selector reflects the active preset, including fallback Stockholm; device or custom coordinates remain unselected.
 Missing values stay missing; incomplete precipitation coverage cannot produce an all-day dry claim.
 Current Open-Meteo values are model-based, with 15-minute time steps, not station observations.
 See the [provider documentation](https://open-meteo.com/en/docs).
