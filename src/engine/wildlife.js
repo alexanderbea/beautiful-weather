@@ -19,7 +19,7 @@ export function bindWildlifeInput(target, canvas, enabled, react) {
       || e.timeStamp - d.time > 500 || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 8) return;
     const r = canvas.getBoundingClientRect();
     react((e.clientX - r.left) * canvas.clientWidth / r.width,
-      (e.clientY - r.top) * canvas.clientHeight / r.height);
+      (e.clientY - r.top) * canvas.clientHeight / r.height, e);
   };
   const entries = [['pointerdown', start], ['pointerup', end], ['pointercancel', cancel], ['scroll', cancel]];
   for (const [name, fn] of entries) target.addEventListener(name, fn, { passive: true });

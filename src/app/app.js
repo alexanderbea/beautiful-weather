@@ -67,6 +67,7 @@ function trackReadout(el, report) {
         // Now floats at the bottom on phones; it is not part of the readout the sky keeps clear of.
         const now = node.parentElement?.closest('.forecast-now');
         if (now && getComputedStyle(now).position === 'fixed') continue;
+        if (node.parentElement?.closest('.overlay__hint')) continue; // a passing hint; the sky need not dodge it
         range.selectNodeContents(node);
         for (const r of range.getClientRects()) {
           if (r.width < 1 || r.height < 1) continue;
@@ -220,11 +221,12 @@ export async function startApp() {
   const desk = createDeskMode({
     readout: document.getElementById('overlay'),
     getState: () => ({ updatedAt, timeZone: locationTimeZone(live?.location ?? place) }),
-    onEnter: () => { menu.close(); playback.reset(); if (place && (!updatedAt || Date.now() - updatedAt >= REFRESH_MS)) refresh(); },
+    onEnter: () => { menu.close(); celestial?.disarm(); playback.reset(); if (place && (!updatedAt || Date.now() - updatedAt >= REFRESH_MS)) refresh(); },
   });
   if (params.get('desk') === '1') desk.enter(); // in-page (fullscreen needs a user gesture)
   trackReadout(document.getElementById('overlay'), box => engine.setReadout(box));
   overlay.onLocation = loc => {
+    celestial?.disarm();
     playback.reset();
     place = loc;
     overlay.setPlace(loc, 'chosen');
@@ -312,6 +314,11 @@ export async function startApp() {
   const dateEl = document.querySelector('[data-el="date"]');
   dateEl.setAttribute('aria-live', 'polite');
   dateEl.setAttribute('aria-atomic', 'true');
+  // Paint under the time line for the coarse tap path ("Tap the sun", "Tap ahead"); never a hit target.
+  const hintEl = document.createElement('div');
+  hintEl.className = 'overlay__hint';
+  hintEl.setAttribute('aria-hidden', 'true');
+  dateEl.after(hintEl);
   const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
   playback = createPlayback({ getLive: () => live, reduced: reducedMotion, onChange: state => {
     previewTime = state.at;
@@ -328,7 +335,7 @@ export async function startApp() {
   const liftNow = () => document.body.style.setProperty('--sheet-h', `${document.body.dataset.menu === 'open' ? sheet.offsetHeight : 0}px`);
   new MutationObserver(liftNow).observe(document.body, { attributes: true, attributeFilter: ['data-menu'] });
   window.addEventListener('resize', liftNow);
-  celestial = createCelestialControl({ engine, playback, getLive: () => live });
+  celestial = createCelestialControl({ engine, playback, getLive: () => live, hint: hintEl });
   setInterval(() => celestial.render(), 100);
 
   // Show a scene immediately while geolocation resolves (defaults to Stockholm's real sun position).
@@ -357,6 +364,8 @@ export async function startApp() {
   await refresh();
   // First real data: snap wind/day state instead of fading from the placeholder.
   apply({ immediate: true });
+  // Once the scene is steady, a finger is shown which body is the hand (once this visit).
+  setTimeout(() => celestial.breathe(), 1000);
   setInterval(() => { if (!document.hidden) refresh(); }, REFRESH_MS);
   setInterval(() => { if (!document.hidden) tickSun(); }, SUN_TICK_MS);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { tickSun(); if (!updatedAt || Date.now() - updatedAt >= REFRESH_MS) refresh(); } });

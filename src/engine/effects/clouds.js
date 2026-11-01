@@ -102,7 +102,19 @@ export function createClouds() {
     ctx.translate(-shift, -c.by);
   }
 
+  let boxes = []; // drawn puffs this frame (hit boxes for the forecast hand)
+  function box(c, shift, art) {
+    const s = art.scale, q = art.squash;
+    let left = Infinity, right = -Infinity, top = Infinity, bottom = -Infinity;
+    for (const p of c.puffs) {
+      const x = c.x + p.dx * s + shift, y = c.y + p.dy * s * q + c.by, r = p.rb * s * 0.9;
+      left = Math.min(left, x - r); right = Math.max(right, x + r); top = Math.min(top, y - r); bottom = Math.max(bottom, y + r);
+    }
+    return { left, top, right, bottom };
+  }
+
   return {
+    boxes: () => boxes.map(b => ({ ...b })),
     init(env) {
       const n = Math.round(MAX_CLOUDS * Math.min(1.3, 0.6 + areaScale(env) * 0.4));
       clouds = Array.from({ length: n }, () => makeCloud(env, true)).sort((a, b) => a.depth - b.depth);
@@ -149,11 +161,13 @@ export function createClouds() {
       // Drifting puffs (dev toggle: env.ambient.clouds); the overcast band and moon break stay.
       const cam = -(env.camX ?? 0);
       const puffsOn = env.ambient?.clouds !== false;
+      boxes = [];
       for (const c of puffsOn ? clouds : []) {
         const vis = smoothstep(c.threshold, c.threshold + 0.12, cloud.cover);
         const alpha = vis * cloud.opacity * weight * (0.75 + c.depth * 0.25);
         const shift = cam * (CLOUD_PARALLAX_FAR + (CLOUD_PARALLAX_NEAR - CLOUD_PARALLAX_FAR) * c.depth);
         if (alpha > 0.005) drawCloud(ctx, c, color, shadow, alpha, shift, art, key, highlight);
+        if (alpha > 0.25) boxes.push(box(c, shift, art));
       }
       ctx.globalAlpha = 1;
 

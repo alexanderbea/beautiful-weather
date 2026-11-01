@@ -460,7 +460,10 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
   // One tap router for the landscape and the forecast hand: with the sheet open an animal still gets
   // the tap, anything else is a landscape tap (closes the sheet, never throws a fish); closed, wildlife.
   const tapEnabled = () => document.body.dataset.menu === 'open' || (running && !document.hidden && !reducedMotion);
-  function tapAt(x, y) {
+  // The forecast hand may claim a coarse (finger) tap first; it leaves wildlife and the open sheet alone.
+  let tapHook = null;
+  function tapAt(x, y, event) {
+    if (tapHook?.(x, y, event)) return;
     if (!tapEnabled()) return;
     routeTap(document.body.dataset.menu === 'open', x, y, {
       interactAnimal: (px, py) => scene.interactAnimal(px, py, env),
@@ -468,7 +471,7 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
       landscapeTap: () => canvas.dispatchEvent(new Event('landscape-tap')),
     });
   }
-  const unbindWildlife = bindWildlifeInput(window, canvas, tapEnabled, tapAt);
+  const unbindWildlife = bindWildlifeInput(window, canvas, () => true, tapAt); // tapAt gates wildlife itself
 
   window.addEventListener('focus', onCalendarReturn);
   window.addEventListener('pageshow', onCalendarReturn);
@@ -494,6 +497,14 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
     },
     /** Same routing as a tap on the landscape (sheet-aware; animals first). */
     tapAt,
+    /** fn(x, y, pointerEvent) -> true when it took the tap (the coarse-pointer forecast hand). */
+    setTapHook(fn) { tapHook = fn; },
+    /** Drawn cloud puffs this frame as boxes { left, top, right, bottom } (CSS px); rain is not a cloud. */
+    cloudBoxes() {
+      const boxes = [];
+      for (const layer of layers.values()) if (layer.weight > 0.3) boxes.push(...(layer.effect.boxes?.() ?? []));
+      return boxes;
+    },
     /** Drawn sun and moon discs this frame (CSS px): { x, y, r, alpha }. */
     get bodies() { return env.sun && env.moon ? { sun: { ...env.sun }, moon: { ...env.moon } } : null; },
     /** The forecast hand as drawn: the sun while it is up (or eclipsed), else the moon. */

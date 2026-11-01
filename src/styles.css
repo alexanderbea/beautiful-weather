@@ -248,3 +248,31 @@ body[data-playback='playing'] .overlay__date::after { opacity: 1; transform: sca
   body[data-menu='open'] .forecast-now { bottom: calc(var(--sheet-h, 0px) + 12px); }
 }
 @media (prefers-reduced-motion: reduce) { .overlay__date, .overlay__temp, .overlay__details { transition: none; } }
+
+/* Coarse pointer: choosing is taps in the sky (skyTap.js). The landscape never selects text, shows a
+   callout or scrolls under a finger; a slide does nothing. The settings sheet keeps its own behaviour. */
+#scene { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: none; -webkit-tap-highlight-color: transparent; }
+@media (pointer: coarse) { .celestial-hand { pointer-events: none; } }
+.selection-bead { fill: rgba(255, 252, 244, 0.22); }
+.selection-tick { fill: none; stroke: rgba(255, 252, 244, 0.3); stroke-width: 1.5; stroke-linecap: round; }
+.selection-breath { fill: none; stroke: rgb(255, 252, 244); stroke-width: 2; opacity: 0; }
+.celestial-selection.is-breathing .selection-breath { animation: hand-breath 1.6s ease-in-out forwards; }
+.celestial-selection.is-armed .selection-ring, .celestial-selection.is-armed .selection-arc,
+.celestial-selection.is-armed .selection-bead, .celestial-selection.is-armed .selection-tick { animation: selection-in 0.28s ease-out; }
+.celestial-selection.is-armed[data-step='a'] :is(.selection-arc, .selection-bead, .selection-tick, .selection-ghost) { animation: step-a 0.32s ease-out; }
+.celestial-selection.is-armed[data-step='b'] :is(.selection-arc, .selection-bead, .selection-tick, .selection-ghost) { animation: step-b 0.32s ease-out; }
+@keyframes step-a { from { opacity: 0; } }
+@keyframes step-b { from { opacity: 0; } }
+@keyframes hand-breath { 0% { opacity: 0; } 40% { opacity: 0.4; } 100% { opacity: 0; } }
+.overlay__hint { font-size: 16px; color: rgba(255, 252, 244, 0.6); margin-top: 6px; pointer-events: none; }
+.overlay__hint:empty { display: none; }
+.overlay__hint.is-breathing { animation: hint-breath 1.6s ease-in-out forwards; }
+@keyframes hint-breath { 0% { opacity: 0; } 40% { opacity: 1; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  /* The ring and the line appear together and leave; nothing pulses. */
+  .celestial-selection.is-breathing .selection-breath { animation: none; opacity: 0.4; }
+  .overlay__hint.is-breathing { animation: none; }
+}
+.celestial-selection.is-instant * { animation: none !important; }
+.celestial-selection.is-instant.is-breathing .selection-breath { opacity: 0.4; }
+body[data-desk='on'] .overlay__hint { visibility: hidden; }
