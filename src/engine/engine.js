@@ -266,7 +266,16 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
     // drifting clouds and sun rays. Fade them out, then restore live effects on exit.
     const wanted = new Set(target.scene === 'eclipse' ? [] : CONDITION_EFFECTS[target.condition] ?? []);
     if (target.scene === 'meteors') wanted.clear();
-    for (const [id, layer] of layers) layer.target = wanted.has(id) ? 1 : 0;
+    for (const [id, layer] of layers) {
+      layer.target = wanted.has(id) ? 1 : 0;
+      if (immediate) {
+        layer.weight = layer.target;
+        if (!layer.target) {
+          layer.effect.destroy?.();
+          layers.delete(id);
+        }
+      }
+    }
     for (const id of wanted) {
       if (layers.has(id) || !EFFECTS[id]) continue;
       const effect = EFFECTS[id]();
@@ -311,6 +320,8 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
       env.rising = target.sunRising ? 1 : 0;
     }
     if (changed || immediate || !env.theme) retarget(immediate);
+    // An immediate update must reach the canvas without depending on a running RAF loop.
+    if (immediate) { update(0); draw(); }
   }
 
   function update(dt) {

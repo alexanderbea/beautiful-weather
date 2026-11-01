@@ -115,7 +115,16 @@ export async function startApp() {
 
   function apply({ immediate = false } = {}) {
     const w = effective();
-    if (!w) return;
+    if (!w) {
+      // No reading for this city: clear the previous city's weather, even while paused.
+      const neutral = { condition: 'clear', windSpeed: 0, location: place,
+        solarElevation: place ? solarElevationAt(place, Date.now()) : 30 };
+      engine.setLandmark(skylineOverride !== undefined ? skylineOverride : landmarkFor(place));
+      engine.setWeather(neutral, { immediate: true });
+      audio.setWeather(neutral);
+      overlay.render({ weather: null, note: [locationNote, dataNote].filter(Boolean).join(' · ') });
+      return;
+    }
     engine.setWeather(sceneWeather(w, atmosphere), { immediate });
     audio.setWeather(w);
     engine.setLandmark(skylineOverride !== undefined ? skylineOverride : landmarkFor(w.location));
@@ -137,8 +146,7 @@ export async function startApp() {
     updatedAt = result.updatedAt;
     stale = !!result.stale;
     dataNote = result.error ? (live ? 'Update failed · showing last reading' : 'Live weather unavailable') : '';
-    if (live) apply();
-    else overlay.render({ weather: null, note: [locationNote, dataNote].filter(Boolean).join(' · ') });
+    apply();
   }
   overlay.onRefresh = () => { if (place) refresh(); };
   overlay.onLocation = loc => {
