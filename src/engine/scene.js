@@ -1,3 +1,4 @@
+import { bodyAt, elevationY, HORIZON } from './celestial.js';
 import { drawHolidayScenery } from './holidayScenery.js';
 import { createWaterWildlife } from './wildlife.js';
 import { createMeteors } from './meteors.js';
@@ -14,15 +15,13 @@ const TAU = Math.PI * 2;
 
 // The three land layers (far, mid, near) take their shape from the active landscape (landscape.js,
 // landscapes/). The horizon stays where the default hills' far ridge sits, for every landscape.
-export const HORIZON = 0.66;
+export { HORIZON };
 const LAYERS = 3;
 // Moon clearance radius (x moon r): covers the disc and Van Gogh's outermost moon ring (2.2 r).
 const MOON_CLEAR = 2.3;
 // Rim light strength per layer: the far ridge catches the most light.
 const RIM_LAYER = [1, 0.85, 0.7];
-// Sun height: 0.2h at e >= 12deg, at the horizon line at e = 0, fully behind the far hills by e ~ -4.
-const SUN_Y_TOP = 0.2;
-const SUN_Y_PER_DEG = (HORIZON - SUN_Y_TOP) / 12;
+// Sun height (celestial.js): 0.2h at e >= 12deg, at the horizon line at e = 0, behind the far hills by e ~ -4.
 // Where the skyline's rooftops meet the sky (fraction of h); skyBaseStep darkens the sky from here down.
 const SKYLINE_BASE = 0.64;
 // Hills are sampled this far (fraction of w) past each edge so no edge ever shows.
@@ -193,18 +192,25 @@ export function createScene() {
       const bodySize = env.artStyle.params.celestial.size;
       // The sun tracks solar elevation and sinks behind the far hills (drawn after the sky, so they
       // occlude it); it is gone by e ~ -5. The moon rises as dayMix falls, faint while twilight glows.
-      const sunY = Math.min(0.95, Math.max(SUN_Y_TOP, HORIZON - elev * SUN_Y_PER_DEG));
+      // Without a location and moment (placeholder) the sun and moon keep their fixed resting columns.
+      // With them, both follow their daily circuit (celestial.js); height still comes from the eased
+      // elevation, and visibility (cloud, day, twilight) is exactly the scene's own.
+      const path = env.celestialAt && env.location ? body => bodyAt(env.location, env.celestialAt, w, h, body) : null;
+      const sunR = m * 0.05 * theme.sun.size * bodySize;
+      const sunX = path ? path('sun').x : w * 0.72;
+      const sunY = h * elevationY(elev);
+      const sunClear = path ? readoutShift(env.readout, sunX - sunR, sunY - sunR, sunX + sunR, sunY + sunR, w) : { dx: 0, dy: 0 };
       env.sun = {
-        x: w * 0.72 + Math.sin(time * 0.03) * w * 0.004,
-        y: h * sunY + Math.sin(time * 0.07) * h * 0.005,
-        r: m * 0.05 * theme.sun.size * bodySize,
+        x: sunX + sunClear.dx + Math.sin(time * 0.03) * w * 0.004,
+        y: sunY + sunClear.dy + Math.sin(time * 0.07) * h * 0.005,
+        r: sunR,
         alpha: smoothstep(-5, -1, elev) * vis,
       };
       // The moon (with Van Gogh's outer ring, MOON_CLEAR x r) moves just clear of the readout (down, or right
       // if that is shorter) when it would sit behind it.
-      const moonX = w * 0.28;
+      const moonX = path ? path('moon').x : w * 0.28;
       const moonR = m * 0.035 * theme.moon.size * bodySize;
-      const moonY = h * (theme.moon.y + dayMix * 0.6);
+      const moonY = path ? h * elevationY(-elev) : h * (theme.moon.y + dayMix * 0.6);
       const moonC = moonR * MOON_CLEAR;
       const clear = readoutShift(env.readout, moonX - moonC, moonY - moonC, moonX + moonC, moonY + moonC, w * 0.55);
       env.moon = {

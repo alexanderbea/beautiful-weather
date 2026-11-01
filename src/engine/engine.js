@@ -1,5 +1,6 @@
+import { handBody } from './celestial.js';
 import { holidayFor, localDateKey } from './holidays.js';
-import { bindWildlifeInput } from './wildlife.js';
+import { bindWildlifeInput, routeTap } from './wildlife.js';
 import { rgba, lerpDeep } from './color.js';
 import { THEMES, resolveTheme, deepMerge } from './themes.js';
 import { createScene } from './scene.js';
@@ -236,12 +237,13 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
   }
 
   /** Static theme for the current target elevation. Only called on retarget, never per frame. */
-  function composeTheme() {
-    const { day, twilight, night } = phaseThemes(target.condition);
+  function composeTheme(condition = target.condition) {
+    const { day, twilight, night } = phaseThemes(condition);
     const w = targetWeights;
     let theme = w.dayMix >= 1 ? day : w.dayMix <= 0 ? night : lerpDeep(night, day, w.dayMix);
     if (w.twilight >= 1) theme = twilight;
     else if (w.twilight > 0) theme = lerpDeep(theme, twilight, w.twilight);
+    if (condition === target.condition && target.nextCondition && target.mix > 0) theme = lerpDeep(theme, composeTheme(target.nextCondition), target.mix);
     return theme;
   }
 
@@ -266,10 +268,12 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
 
     // The imagined totality must stay visible: even the clear-weather layer has
     // drifting clouds and sun rays. Fade them out, then restore live effects on exit.
-    const wanted = new Set(target.scene === 'eclipse' ? [] : CONDITION_EFFECTS[target.condition] ?? []);
-    if (target.scene === 'meteors') wanted.clear();
+    const effectsOf = c => target.scene === 'eclipse' || target.scene === 'meteors' ? [] : CONDITION_EFFECTS[c] ?? [];
+    const weights = new Map(effectsOf(target.condition).map(id => [id, 1 - (target.nextCondition ? target.mix : 0)]));
+    if (target.nextCondition) for (const id of effectsOf(target.nextCondition)) weights.set(id, (weights.get(id) ?? 0) + target.mix);
+    const wanted = new Set([...weights].filter(([, k]) => k > 0).map(([id]) => id));
     for (const [id, layer] of layers) {
-      layer.target = wanted.has(id) ? 1 : 0;
+      layer.target = weights.get(id) ?? 0;
       if (immediate) {
         layer.weight = layer.target;
         if (!layer.target) {
@@ -282,7 +286,7 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
       if (layers.has(id) || !EFFECTS[id]) continue;
       const effect = EFFECTS[id]();
       effect.init(env);
-      layers.set(id, { effect, weight: immediate ? 1 : 0, target: 1 });
+      layers.set(id, { effect, weight: immediate ? weights.get(id) : 0, target: weights.get(id) });
     }
   }
 
@@ -292,10 +296,12 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
    *   sunRising (default false) marks a sunrise, which enables the dawn mist; it eases, never snaps.
    * @param {{ immediate?: boolean }} [opts] immediate snaps instead of cross-fading.
    */
-  function setWeather({ condition, isDay, windSpeed, solarElevation, sunRising, location, scene: atmosphere = 'live' }, { immediate = false } = {}) {
+  function setWeather({ condition, isDay, windSpeed, solarElevation, sunRising, location, scene: atmosphere = 'live', celestialAt, nextCondition = null, mix = 0 }, { immediate = false, continuous = false } = {}) {
     // A manually paused scene cannot advance a cross-fade. Paint the new weather
     // once at the frozen simulation time, without restarting the animation loop.
     immediate ||= manualPause;
+    env.celestialAt = celestialAt;
+    env.location = location;
     if (Number.isFinite(location?.lat)) lastLat = location.lat;
     env.season = seasonOverride ?? seasonFor(lastLat);
     // Night-only aliases: 'night' is clear sky and 'night-rain' is rain, both with the sun forced below -18 deg.
@@ -311,20 +317,23 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
       windSpeed: windSpeed ?? 0,
       solarElevation: elevation,
       sunRising: !alias && sunRising === true,
+      // Forecast playback crossfades toward the next hourly sample (k = mix) instead of cutting on the hour.
+      nextCondition: !alias && mix > 0 && nextCondition && nextCondition !== condition ? NIGHT_ALIASES[nextCondition] ?? nextCondition : null,
+      mix: Math.max(0, Math.min(1, mix)),
     };
     const sceneChanged = next.scene !== target.scene || next.condition !== target.condition;
-    const changed = sceneChanged
+    const changed = sceneChanged || continuous || next.nextCondition !== target.nextCondition
       || Math.abs(next.solarElevation - target.solarElevation) > ELEVATION_EPSILON;
     if (next.scene !== target.scene) scene.meteors.reset();
     // Solar refreshes only retarget the lighting. Preserve flock/reaction lifetimes
     // and the rare gust clock; birds remain available through lighting transitions.
-    if (sceneChanged) scene.resetWildlife();
+    if (sceneChanged && !continuous) scene.resetWildlife();
     target = next;
     if (immediate) {
       env.wind = target.windSpeed;
       env.rising = target.sunRising ? 1 : 0;
     }
-    if (changed || immediate || !env.theme) retarget(immediate);
+    if (changed || immediate || !env.theme) retarget(immediate || continuous);
     // An immediate update must reach the canvas without depending on a running RAF loop.
     if (immediate) { update(0); draw(); }
   }
@@ -448,13 +457,18 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
     else if (!manualPause) start();
   }
 
-  const unbindWildlife = bindWildlifeInput(window, canvas,
-    () => document.body.dataset.menu === 'open' || (running && !document.hidden && !reducedMotion),
-    (x, y) => {
-      if (document.body.dataset.menu === 'open') {
-        if (!scene.interactAnimal(x, y, env)) canvas.dispatchEvent(new Event('landscape-tap'));
-      } else scene.interact(x, y, env);
+  // One tap router for the landscape and the forecast hand: with the sheet open an animal still gets
+  // the tap, anything else is a landscape tap (closes the sheet, never throws a fish); closed, wildlife.
+  const tapEnabled = () => document.body.dataset.menu === 'open' || (running && !document.hidden && !reducedMotion);
+  function tapAt(x, y) {
+    if (!tapEnabled()) return;
+    routeTap(document.body.dataset.menu === 'open', x, y, {
+      interactAnimal: (px, py) => scene.interactAnimal(px, py, env),
+      interact: (px, py) => scene.interact(px, py, env),
+      landscapeTap: () => canvas.dispatchEvent(new Event('landscape-tap')),
     });
+  }
+  const unbindWildlife = bindWildlifeInput(window, canvas, tapEnabled, tapAt);
 
   window.addEventListener('focus', onCalendarReturn);
   window.addEventListener('pageshow', onCalendarReturn);
@@ -474,6 +488,21 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
 
   return {
     setWeather,
+    /** True when a visible bird or fish is under the point (CSS px). */
+    animalContains(x, y) {
+      return scene.ambient.state.birdHits.some(b => Math.hypot(x - b.x, y - b.y) < 26) || scene.wildlife.hit(x, y, env.width);
+    },
+    /** Same routing as a tap on the landscape (sheet-aware; animals first). */
+    tapAt,
+    /** Drawn sun and moon discs this frame (CSS px): { x, y, r, alpha }. */
+    get bodies() { return env.sun && env.moon ? { sun: { ...env.sun }, moon: { ...env.moon } } : null; },
+    /** The forecast hand as drawn: the sun while it is up (or eclipsed), else the moon. */
+    get celestial() {
+      if (!env.sun || !env.moon) return null;
+      if (env.scene === 'eclipse' && env.eclipseBody) return { body: 'sun', alpha: 1, ...env.eclipseBody };
+      const body = handBody(env.solarElevation);
+      return { body, ...env[body] };
+    },
     // Read-only geometry probe for checking pointer landings against visible water.
     waterContains(x, y) { return scene.wildlife.contains(x, y); },
     /** Art style by id (styles/index.js): palette, scene parameters and overlay passes cross-fade unless opts.immediate. */

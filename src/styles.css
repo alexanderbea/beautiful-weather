@@ -216,3 +216,35 @@ html, body {
   body[data-menu='open'] .audio-ctl, body[data-menu='open'] .style-picker { visibility: hidden; }
 }
 @media (prefers-reduced-motion: reduce) { .menu, .menu[data-state='closed'] { transition: none; } }
+
+/* Forecast playback. The sun (or the moon) is the hand: an invisible hit target over the drawn disc.
+   The readout stays paint (pointer-events: none above); only Now takes taps. */
+.celestial-hand { position: fixed; z-index: 3; margin: 0; border: 0; padding: 0; border-radius: 50%; background: transparent; touch-action: none; cursor: grab; -webkit-tap-highlight-color: transparent; }
+.celestial-hand:active { cursor: grabbing; }
+.celestial-hand[aria-disabled='true'] { pointer-events: none; cursor: default; }
+.celestial-hand:focus, .celestial-hand:focus-visible { outline: none; }
+.celestial-selection { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 4; overflow: hidden; }
+.selection-ring { fill: none; stroke: rgba(255, 252, 244, 0.7); stroke-width: 2; animation: selection-in 0.2s ease-out; }
+.selection-arc { fill: none; stroke: rgba(255, 252, 244, 0.3); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; animation: selection-in 0.3s ease-out; }
+.selection-ghost { fill: rgba(255, 252, 244, 0.28); }
+.selection-soft { fill: rgba(255, 252, 244, 0.22); }
+.celestial-selection.is-instant * { animation: none; }
+@keyframes selection-in { from { opacity: 0; } }
+body[data-desk='on'] .celestial-hand, body[data-desk='on'] .celestial-selection { visibility: hidden; }
+
+/* The time line: paint, at least 16px; it grows while a journey plays, with a progress hairline. */
+.overlay { z-index: 9; }
+.overlay__date { width: fit-content; font-size: 16px; font-variant-numeric: tabular-nums; transition: font-size 0.25s ease, color 0.25s ease; }
+.overlay__temp, .overlay__details { transition: opacity 0.2s ease; }
+body[data-selecting='true'] .overlay__temp, body[data-selecting='true'] .overlay__details { opacity: 0.45; }
+body[data-playback='playing'] .overlay__date { font-size: 22px; color: var(--fg); }
+.overlay__date::after { content: ''; display: block; height: 1px; margin-top: 5px; background: rgba(255, 252, 244, 0.7); transform-origin: left; transform: scaleX(0); opacity: 0; }
+body[data-playback='playing'] .overlay__date::after { opacity: 1; transform: scaleX(var(--progress, 0)); }
+.forecast-now { pointer-events: auto; display: block; margin-top: 10px; min-height: 44px; padding: 8px 20px; font: inherit; font-size: 16px; color: var(--fg); background: rgba(10, 16, 28, 0.5); border: 1px solid #ffffff40; border-radius: 22px; cursor: pointer; }
+.forecast-now:hover { background: rgba(10, 16, 28, 0.72); }
+.forecast-now:focus-visible { outline: 2px solid rgba(255, 252, 244, 0.7); outline-offset: 2px; }
+@media (max-width: 600px) {
+  .forecast-now { position: fixed; z-index: 10; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom, 0px) + 96px); margin: 0; }
+  body[data-menu='open'] .forecast-now { bottom: calc(var(--sheet-h, 0px) + 12px); }
+}
+@media (prefers-reduced-motion: reduce) { .overlay__date, .overlay__temp, .overlay__details { transition: none; } }

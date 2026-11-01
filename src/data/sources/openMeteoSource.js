@@ -58,6 +58,7 @@ export function parseOpenMeteo(data, location) {
     forecast: (data.hourly?.time ?? []).map((time, i) => ({
       time: Date.parse(`${time}Z`),
       temperatureC: finite(data.hourly.temperature_2m?.[i]),
+      feelsLikeC: finite(data.hourly.apparent_temperature?.[i]),
       precipitationMm: finite(data.hourly.precipitation?.[i]),
       probability: finite(data.hourly.precipitation_probability?.[i]),
       // Sky for previewing the hour; null when the provider sent no code for it.
@@ -78,7 +79,7 @@ export function createOpenMeteoSource({ fetchImpl = fetch } = {}) {
   return {
     id: 'open-meteo',
     async fetchCurrent(location) {
-      const url = `${ENDPOINT}?latitude=${location.lat}&longitude=${location.lng}&current=${CURRENT_FIELDS}&hourly=temperature_2m,precipitation,precipitation_probability,weather_code,wind_speed_10m,is_day&forecast_days=3&wind_speed_unit=ms&timezone=UTC`;
+      const url = `${ENDPOINT}?latitude=${location.lat}&longitude=${location.lng}&current=${CURRENT_FIELDS}&hourly=temperature_2m,precipitation,precipitation_probability,weather_code,wind_speed_10m,is_day,apparent_temperature&forecast_days=3&wind_speed_unit=ms&timezone=UTC`;
       const res = await fetchImpl(url, { cache: 'no-store', signal: AbortSignal.timeout(12000) });
       if (!res.ok) throw new Error(`Open-Meteo HTTP ${res.status}`);
       return parseOpenMeteo(await res.json(), location);

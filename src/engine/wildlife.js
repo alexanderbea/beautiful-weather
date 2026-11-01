@@ -26,6 +26,17 @@ export function bindWildlifeInput(target, canvas, enabled, react) {
   return () => { cancel(); for (const [name, fn] of entries) target.removeEventListener(name, fn); };
 }
 
+/**
+ * Where a tap goes. Sheet open: a bird or fish under it gets it (the sheet stays), anything else is a
+ * landscape tap that closes the sheet and never also throws a fish. Sheet closed: ordinary wildlife.
+ */
+export function routeTap(menuOpen, x, y, { interactAnimal, interact, landscapeTap }) {
+  if (!menuOpen) { interact(x, y); return 'wildlife'; }
+  if (interactAnimal(x, y)) return 'animal';
+  landscapeTap();
+  return 'landscape';
+}
+
 export function createWaterWildlife(random = Math.random) {
   let water = null, fishes = [], ripples = [], cooldown = 0, wait = 10 + random() * 15;
   let blocked = false;

@@ -51,13 +51,15 @@ export function createOverlay(root, { unit: pinnedUnit = null, controls, sourceL
       const u = unit ?? unitForCountry(place.country);
       for (const b of controls.querySelectorAll('[data-unit]')) b.setAttribute('aria-pressed', String(b.dataset.unit === u));
       const temp = value => Number.isFinite(value) ? `${convertTemp(value, u)}°${u}` : '—';
-      el.tempValue.textContent = convertTemp(weather.temperatureC, u); el.tempUnit.textContent = `°${u}`;
+      el.tempValue.textContent = Number.isFinite(weather.temperatureC) ? convertTemp(weather.temperatureC, u) : '—'; el.tempUnit.textContent = `°${u}`;
       el.feels.textContent = `Feels like ${temp(weather.feelsLikeC)} · `;
       el.cond.textContent = `${LABELS[weather.condition]} · ${weather.windSpeed.toFixed(1)} m/s wind`;
-      const now = Date.now();
+      if (state.missing) { el.cond.textContent = 'No reading'; el.feels.textContent = ''; }
+      const now = state.at ?? Date.now();
       const day = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: zone }).format(now).replace(',', '');
       const time = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: zone }).format(now);
-      el.date.textContent = `${day} · ${time}`;
+      const dateText = `${day} · ${time}`;
+      if (el.date.textContent !== dateText) el.date.textContent = dateText;
       sourceLine.textContent = `${source === 'mock' ? 'Sample data' : source === 'openweathermap' ? 'OpenWeather' : 'Open-Meteo'} · ${zone}${state.stale ? ' · Stale reading' : ''}`;
     },
   };

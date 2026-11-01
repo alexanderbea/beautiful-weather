@@ -1,3 +1,5 @@
+import { createPlayback, readingAt } from './playback.js';
+import { createCelestialControl } from './celestialControl.js';
 import { parseScene, sceneForcesNight, sceneWeather } from './atmosphere.js';
 import { createEngine } from '../engine/engine.js';
 import { createWeatherService } from '../data/weatherService.js';
@@ -62,6 +64,9 @@ function trackReadout(el, report) {
       const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
       for (let node = walker.nextNode(); node; node = walker.nextNode()) {
         if (!node.textContent.trim()) continue;
+        // Now floats at the bottom on phones; it is not part of the readout the sky keeps clear of.
+        const now = node.parentElement?.closest('.forecast-now');
+        if (now && getComputedStyle(now).position === 'fixed') continue;
         range.selectNodeContents(node);
         for (const r of range.getClientRects()) {
           if (r.width < 1 || r.height < 1) continue;
@@ -99,6 +104,7 @@ export async function startApp() {
   let place = null;
   let stale = false;
   let refreshId = 0;
+  let playback, celestial;
   let previewTime = null; // epoch ms of the forecast hour shown on the landscape; null is now
   let landscapeId = null; // set by the landscape state below
 
@@ -133,20 +139,17 @@ export async function startApp() {
   const audio = createAmbientAudio();
   createAudioControl(document.getElementById('audio-ctl'), audio);
 
-  /** Live weather, or the previewed forecast hour's sky, wind and sun on the same location. */
+  /** Live weather, or the forecast playhead's interpolated reading (sky, numbers, sun) on the same location. */
   function current() {
-    const hour = previewTime === null ? null : live?.forecast.find(h => h.time === previewTime);
-    if (!hour) return { weather: live, at: Date.now() };
-    const solarElevation = solarElevationAt(live.location, hour.time);
-    return { at: hour.time, weather: { ...live,
-      condition: hour.condition ?? live.condition, // no hourly code: keep the current sky, the sun still moves
-      windSpeed: hour.windSpeed ?? live.windSpeed,
-      isDay: hour.isDay ?? solarElevation > SUNRISE_ELEVATION, solarElevation } };
+    const at = playback?.state.at ?? Date.now();
+    if (!live) return { weather: null, at, missing: false, nextCondition: null, mix: 0 };
+    if (playback?.state.at == null) return { weather: live, at, missing: false, nextCondition: null, mix: 0 };
+    return { at, ...readingAt(live, at, Date.now()) };
   }
 
   function effective() {
     if (!live) return null;
-    const { weather: now, at } = current();
+    const { weather: now, at, nextCondition, mix } = current();
     // A condition override swaps in canned numbers so the readout stays plausible.
     const base = overrides.condition
       ? { ...cannedWeather(overrides.condition, now.location), isDay: now.isDay, solarElevation: now.solarElevation, location: now.location }
@@ -165,7 +168,9 @@ export async function startApp() {
       solarElevation = Math.min(Number.isFinite(solarElevation) ? solarElevation : NIGHT_ELEVATION, NIGHT_ELEVATION);
     }
     const windSpeed = overrides.wind ?? base.windSpeed;
-    return { ...base, isDay, solarElevation, windSpeed, sunRising };
+    // The scene crossfades between hourly samples while the playhead travels (never with dev overrides).
+    const sky = overrides.condition ? {} : { condition: now.sceneCondition ?? base.condition, nextCondition, mix };
+    return { ...base, isDay, solarElevation, windSpeed, sunRising, celestialAt: at, sky };
   }
 
   function apply({ immediate = false } = {}) {
@@ -180,14 +185,15 @@ export async function startApp() {
       overlay.render({ weather: null, note: [locationNote, dataNote].filter(Boolean).join(' · ') });
       return;
     }
-    engine.setWeather(sceneWeather(w, atmosphere), { immediate });
+    engine.setWeather(sceneWeather({ ...w, ...w.sky }, atmosphere), { immediate, continuous: playback?.state.at != null });
     audio.setWeather(w);
     engine.setLandmark(skylineOverride !== undefined ? skylineOverride : landmarkFor(w.location));
     const overridden = overrides.condition || overrides.time || overrides.wind !== null || elevOverride !== null;
     const sceneNote = atmosphere === 'meteors' ? 'Meteor shower · night demo'
       : atmosphere === 'eclipse' ? 'eclipse · imagined scene' : '';
     dev.sync();
-    overlay.render({ weather: live, source, updatedAt, stale, isDay: atmosphere === 'meteors' ? false : w.isDay, note: [locationNote, dataNote, sceneNote, landscapeNote(landscapeId), overridden ? 'dev override' : ''].filter(Boolean).join(' · ') });
+    const shown = current();
+    overlay.render({ weather: shown.weather, at: playback?.state.chosen ?? shown.at, missing: shown.missing, source, updatedAt, stale, isDay: atmosphere === 'meteors' ? false : w.isDay, note: [locationNote, dataNote, sceneNote, landscapeNote(landscapeId), overridden ? 'dev override' : ''].filter(Boolean).join(' · ') });
   }
 
   /** Fetches the current weather for `place`. Never throws: a failed refresh keeps the last data. */
@@ -214,11 +220,12 @@ export async function startApp() {
   const desk = createDeskMode({
     readout: document.getElementById('overlay'),
     getState: () => ({ updatedAt, timeZone: locationTimeZone(live?.location ?? place) }),
-    onEnter: () => { menu.close(); if (place && (!updatedAt || Date.now() - updatedAt >= REFRESH_MS)) refresh(); },
+    onEnter: () => { menu.close(); playback.reset(); if (place && (!updatedAt || Date.now() - updatedAt >= REFRESH_MS)) refresh(); },
   });
   if (params.get('desk') === '1') desk.enter(); // in-page (fullscreen needs a user gesture)
   trackReadout(document.getElementById('overlay'), box => engine.setReadout(box));
   overlay.onLocation = loc => {
+    playback.reset();
     place = loc;
     overlay.setPlace(loc, 'chosen');
     live = null;
@@ -295,6 +302,35 @@ export async function startApp() {
     apply();
   }
 
+  // Forecast playback: the sun (or the moon) is the hand; Now on the landscape is the way back.
+  const nowButton = document.createElement('button');
+  nowButton.type = 'button';
+  nowButton.className = 'forecast-now';
+  nowButton.textContent = 'Now';
+  nowButton.hidden = true;
+  document.getElementById('overlay').append(nowButton);
+  const dateEl = document.querySelector('[data-el="date"]');
+  dateEl.setAttribute('aria-live', 'polite');
+  dateEl.setAttribute('aria-atomic', 'true');
+  const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+  playback = createPlayback({ getLive: () => live, reduced: reducedMotion, onChange: state => {
+    previewTime = state.at;
+    document.body.dataset.playback = state.mode;
+    nowButton.hidden = state.mode === 'live';
+    dateEl.style.setProperty('--progress', state.progress);
+    apply({ immediate: reducedMotion() });
+    celestial?.render();
+  } });
+  document.body.dataset.playback = 'live';
+  nowButton.addEventListener('click', () => playback.now());
+  // On phones the sheet rises from the bottom: Now rides just above it while it is open.
+  const sheet = document.getElementById('forecast-menu');
+  const liftNow = () => document.body.style.setProperty('--sheet-h', `${document.body.dataset.menu === 'open' ? sheet.offsetHeight : 0}px`);
+  new MutationObserver(liftNow).observe(document.body, { attributes: true, attributeFilter: ['data-menu'] });
+  window.addEventListener('resize', liftNow);
+  celestial = createCelestialControl({ engine, playback, getLive: () => live });
+  setInterval(() => celestial.render(), 100);
+
   // Show a scene immediately while geolocation resolves (defaults to Stockholm's real sun position).
   // Routed through effective() so ?time= / ?elev= apply from the first frame.
   live = cannedWeather('clear', {});
@@ -326,5 +362,5 @@ export async function startApp() {
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { tickSun(); if (!updatedAt || Date.now() - updatedAt >= REFRESH_MS) refresh(); } });
 
   // Handy for console experiments, e.g. __bw.engine.setThemes({ rain: { day: { sky: { top: '#000' } } } })
-  window.__bw = { engine, audio, service, refresh, style: styleState, landscape: landscapeState, menu, desk, get live() { return live; }, get updatedAt() { return updatedAt; }, get previewTime() { return previewTime; } };
+  window.__bw = { playback, engine, audio, service, refresh, style: styleState, landscape: landscapeState, menu, desk, get live() { return live; }, get updatedAt() { return updatedAt; }, get previewTime() { return previewTime; } };
 }
