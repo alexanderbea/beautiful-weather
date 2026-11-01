@@ -10,6 +10,7 @@ import { getDeviceLocation, locationFromParams } from './location.js';
 import { parseUnitParam } from './units.js';
 import { ART_STYLES, createStyleState, parseStyleParam } from './artStyle.js';
 import { createStylePicker } from './stylePicker.js';
+import { LANDSCAPES, createLandscapeState, parseLandscapeParam, landscapeNote } from './landscape.js';
 import { createAmbientAudio } from '../engine/audio.js';
 import { createAudioControl } from './audioControl.js';
 import { createDeskMode } from './deskMode.js';
@@ -99,6 +100,7 @@ export async function startApp() {
   let stale = false;
   let refreshId = 0;
   let previewTime = null; // epoch ms of the forecast hour shown on the landscape; null is now
+  let landscapeId = null; // set by the landscape state below
 
   const initialOverrides = {
     condition: CONDITIONS.includes(params.get('condition')) ? params.get('condition') : null,
@@ -185,7 +187,7 @@ export async function startApp() {
     const sceneNote = atmosphere === 'meteors' ? 'Meteor shower · night demo'
       : atmosphere === 'eclipse' ? 'eclipse · imagined scene' : '';
     dev.sync();
-    overlay.render({ weather: live, source, updatedAt, stale, isDay: atmosphere === 'meteors' ? false : w.isDay, note: [locationNote, dataNote, sceneNote, overridden ? 'dev override' : ''].filter(Boolean).join(' · ') });
+    overlay.render({ weather: live, source, updatedAt, stale, isDay: atmosphere === 'meteors' ? false : w.isDay, note: [locationNote, dataNote, sceneNote, landscapeNote(landscapeId), overridden ? 'dev override' : ''].filter(Boolean).join(' · ') });
   }
 
   /** Fetches the current weather for `place`. Never throws: a failed refresh keeps the last data. */
@@ -278,6 +280,26 @@ export async function startApp() {
     picker.setActive(id);
   });
 
+  // Landscape: ?landscape=<id> > saved choice > the default hills. Separate from the art style, so any
+  // landscape takes any style; the weather and the sun still drive it. Non-default landscapes are
+  // labelled as imagined in the readout note (they never stand for the viewer's real surroundings).
+  const landscapeState = createLandscapeState({ initial: parseLandscapeParam(params.get('landscape')) });
+  const landscapePicker = createStylePicker(document.getElementById('landscape-picker'), {
+    styles: LANDSCAPES,
+    active: landscapeState.get(),
+    onChange: (id) => landscapeState.set(id),
+    name: 'Landscape',
+  });
+  let firstLandscape = true;
+  landscapeState.subscribe((id) => {
+    landscapeId = id;
+    engine.setLandscape(id, { immediate: firstLandscape });
+    document.documentElement.dataset.landscape = id; // CSS hook only
+    landscapePicker.setActive(id);
+    if (!firstLandscape && live) apply();
+    firstLandscape = false;
+  });
+
   /** Cheap, network-free sun update: live data keeps its source but the sun keeps moving. */
   function tickSun() {
     if (!live) return;
@@ -318,5 +340,5 @@ export async function startApp() {
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { tickSun(); if (!updatedAt || Date.now() - updatedAt >= REFRESH_MS) refresh(); } });
 
   // Handy for console experiments, e.g. __bw.engine.setThemes({ rain: { day: { sky: { top: '#000' } } } })
-  window.__bw = { engine, audio, service, refresh, style: styleState, menu, desk, get live() { return live; }, get updatedAt() { return updatedAt; }, get previewTime() { return previewTime; } };
+  window.__bw = { engine, audio, service, refresh, style: styleState, landscape: landscapeState, menu, desk, get live() { return live; }, get updatedAt() { return updatedAt; }, get previewTime() { return previewTime; } };
 }

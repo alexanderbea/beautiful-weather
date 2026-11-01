@@ -6,6 +6,7 @@ import { createScene } from './scene.js';
 import { EFFECTS, CONDITION_EFFECTS } from './effects/index.js';
 import { parseAmbientParams, seasonFor, SEASONS } from './ambient.js';
 import { STYLE_PARAMS, DEFAULT_STYLE_ID, styleDef } from './styles/index.js';
+import { landscapeDef } from './landscapes/index.js';
 
 const NIGHT_ALIASES = { night: 'clear', 'night-rain': 'rain' };
 const TRANSITION_S = 1.8;
@@ -478,7 +479,20 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
       if (id === landmark) return;
       landmark = id ?? null;
       scene.resetWildlife();
-      scene.setLandmark(landmark);
+      // Only a landscape with a town (the default hills) shows the location's landmark.
+      scene.setLandmark(scene.landscape.town ? landmark : null);
+    },
+    /**
+     * Landscape by id (landscapes/index.js): the shape of the land, independent of the art style. The
+     * contours morph and colours / details cross-fade unless opts.immediate. Landscapes other than the
+     * default hills are imagined places, so they hide the location's landmark skyline.
+     */
+    setLandscape(id, { immediate = false } = {}) {
+      if (!landscapeDef(id) || !scene.setLandscape(id, immediate)) return;
+      scene.meteors.reset();
+      scene.resetWildlife();
+      scene.setLandmark(scene.landscape.town ? landmark : null);
+      if (immediate && env.theme) { update(0); draw(); }
     },
     /** Weather readout text box { left, top, right, bottom } in CSS px, or null; see readoutClearance.js. */
     setReadout(box) {
@@ -521,12 +535,13 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
         meteors: scene.meteors.state,
         light: env.light && { g: env.light.g, golden: env.light.golden, dawn: env.light.dawn, rimAlpha: env.light.rim[3] },
         effects: [...layers.keys()],
-        landmark,
+        landmark: scene.landscape.town ? landmark : null,
         season: env.season,
         holiday: env.holiday,
         ambient: scene.ambient.state,
         wildlife: scene.wildlife.state,
         style: styleId,
+        landscape: scene.landscape.id,
         styleParams: env.artStyle.params,
         parallax: {
           enabled: parallaxEnabled,
