@@ -1,136 +1,77 @@
-import { CITIES, selectedCity, locationTimeZone } from './cities.js';
-import { createTimeFormatter, previewLabel } from './time.js';
+import { locationTimeZone } from './cities.js';
+import { createTimeFormatter } from './time.js';
 import { formatCoords } from '../data/geocode.js';
 import { convertTemp, unitForCountry } from './units.js';
-import { nextHours, precipitationSummary, isStale } from './forecast.js';
+import { isStale } from './forecast.js';
+import { parseLocationInput } from './devControls.js';
 
 /** Readout word per condition. */
 export const LABELS = { clear: 'Clear', clouds: 'Cloudy', rain: 'Rain', snow: 'Snow', wind: 'Windy', fog: 'Fog', night: 'Clear night', 'night-rain': 'Rainy night' };
-/**
- * Current readout on the landscape (`root`) plus the menu's city row and hourly scrubber
- * (`controls`, `forecast`). Picking an hour reports onPreview(hour, { caption, commit });
- * commit is false while arrow keys scrub, true for a click/tap or Enter/Space.
- */
-export function createOverlay(root, { unit: pinnedUnit = null, controls, forecast } = {}) {
+
+export function createOverlay(root, { unit: pinnedUnit = null, controls, sourceLine } = {}) {
   root.innerHTML = `
-    <div class="overlay__place" data-el="place">Locating…</div>
+    <div class="overlay__place" data-el="place">Finding your city</div>
     <div class="overlay__temp"><span data-el="tempValue">—</span><span class="overlay__unit" data-el="tempUnit"></span></div>
-    <div data-el="feels"></div><div class="overlay__cond" data-el="cond"></div>
-    <div class="overlay__note" data-el="status" role="status">Loading weather…</div>
-    <div class="overlay__note" data-el="note"></div>`;
-  controls.innerHTML = `<label>City <select data-el="city" aria-label="Choose a city"><option value="">Choose…</option>${Object.keys(CITIES).map(name => `<option>${name}</option>`).join('')}</select></label>
-    <label>Units <select data-el="unit" aria-label="Temperature units"><option value="C">°C</option><option value="F">°F</option></select></label><button data-el="retry" type="button">Refresh</button>`;
-  forecast.innerHTML = `<h2 class="forecast__title" id="forecast-title">Next 24 hours · hourly</h2>
-    <p data-el="rain"></p><div class="forecast__hours" data-el="hours" role="radiogroup" aria-labelledby="forecast-title" aria-describedby="forecast-hint"></div>
-    <div class="overlay__note" id="forecast-hint">Choose an hour to preview its weather on the landscape.</div>
-    <div class="overlay__note" data-el="credit"></div>`;
-  const el = Object.fromEntries([root, controls, forecast].flatMap(r => [...r.querySelectorAll('[data-el]')]).map(n => [n.dataset.el, n]));
-  let unit = pinnedUnit;
-  let last;
-  let shown = null; // what the hour buttons were built from, so routine re-renders keep focus
-  let hours = [];
-  let selected = null; // epoch ms of the previewed hour
-  let caption = () => '';
-
-  function syncSelection() {
-    const buttons = [...el.hours.children];
-    for (const b of buttons) {
-      const on = +b.dataset.time === selected;
-      b.setAttribute('aria-checked', String(on));
-      b.tabIndex = on ? 0 : -1;
-    }
-    if (buttons.length && !buttons.some(b => b.tabIndex === 0)) buttons[0].tabIndex = 0;
+    <div class="overlay__details"><span data-el="feels"></span><span data-el="cond"></span></div>
+    <div class="overlay__date" data-el="date"></div>
+    <span data-el="status" hidden></span><span data-el="note" hidden></span>`;
+  controls.innerHTML = `<div class="settings-place">
+      <div class="place-heading"><div><div class="place-name" data-el="name">Finding your city</div><div class="place-origin" data-el="origin"></div></div>
+      <div class="place-actions"><button data-el="change" type="button" hidden>Change</button><button data-el="update" type="button">Update</button></div></div>
+      <form data-el="form" hidden><input data-el="city" aria-label="City name" placeholder="City name" autocomplete="off" required><div class="place-actions"><button type="submit">Apply</button><button data-el="cancel" type="button">Cancel</button></div><p data-el="error" role="status" hidden></p></form>
+    </div>
+    <div class="settings-row"><span>Units</span><div class="units" role="group" aria-label="Temperature units"><button type="button" data-unit="C" aria-pressed="true">°C</button><button type="button" data-unit="F" aria-pressed="false">°F</button></div></div>`;
+  const el = Object.fromEntries([root, controls].flatMap(r => [...r.querySelectorAll('[data-el]')]).map(n => [n.dataset.el, n]));
+  let unit = pinnedUnit, last, place, origin = 'locating', editing = false;
+  function syncPlace() {
+    el.name.textContent = origin === 'locating' ? 'Finding your city' : origin === 'off' ? 'Location is off' : place?.name || (place ? formatCoords(place) : 'Finding your city');
+    el.origin.textContent = origin === 'device' ? 'This phone' : origin === 'chosen' ? 'Chosen' : '';
+    el.change.hidden = origin === 'locating' || origin === 'off' || editing;
+    el.update.disabled = origin === 'locating';
+    el.form.hidden = origin === 'locating' || !(editing || origin === 'off');
+    el.cancel.hidden = origin === 'off';
   }
-  function select(time, commit) {
-    const hour = hours.find(h => h.time === time);
-    if (!hour) return;
-    selected = time;
-    syncSelection();
-    el.hours.querySelector(`[data-time="${time}"]`)?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
-    api.onPreview?.(hour, { caption: caption(hour), commit });
-  }
-  function dropSelection() {
-    if (selected === null) return;
-    selected = null;
-    syncSelection();
-    // Rendering runs inside the app's apply(); report after it returns.
-    queueMicrotask(() => api.onPreview?.(null, {}));
-  }
-
   const api = {
-    onLocation: null, onRefresh: null, onPreview: null,
-    loading(location) { el.city.value = selectedCity(location); el.place.textContent = location?.name || (location ? formatCoords(location) : 'Locating…'); el.status.textContent = 'Loading weather…'; },
-    /** Back to now: the scrubber shows no previewed hour. */
-    clearSelection() { selected = null; syncSelection(); el.hours.scrollLeft = 0; },
-    get selected() { return selected; },
-    focusSelected() { (el.hours.querySelector('[tabindex="0"]') ?? el.city).focus(); },
+    onLocation: null, onRefresh: null,
+    setPlace(location, kind) { place = location; origin = kind; editing = false; syncPlace(); },
+    loading(location) { el.status.textContent = 'Loading weather…'; place = location; el.place.textContent = location?.name || (location ? formatCoords(location) : 'Finding your city'); syncPlace(); },
     render(state) {
       last = state;
-      const { weather, note = '', updatedAt, stale, source } = state;
-      el.note.textContent = note;
+      const { weather, source } = state;
+      el.note.textContent = state.note || '';
+      el.status.textContent = !weather ? 'Weather unavailable' : state.stale || isStale(weather, state.updatedAt) ? 'Stale reading' : '';
       if (!weather) {
-        el.tempValue.textContent = '—'; el.tempUnit.textContent = ''; el.feels.textContent = ''; el.cond.textContent = '';
-        el.status.textContent = 'Weather unavailable. Choose a city or refresh to retry.';
-        const refocus = el.hours.contains(document.activeElement);
-        el.rain.textContent = 'Forecast unavailable.'; el.hours.replaceChildren(); el.credit.textContent = '';
-        if (refocus) el.city.focus();
-        hours = []; shown = null; dropSelection();
+        el.tempValue.textContent = '—'; el.tempUnit.textContent = ''; el.feels.textContent = ''; el.cond.textContent = ''; el.date.textContent = '';
+        sourceLine.textContent = 'Weather unavailable · Update to retry';
         return;
       }
-      el.city.value = selectedCity(weather.location);
-      const { zone, format: time } = createTimeFormatter(locationTimeZone(weather.location));
-      el.place.textContent = weather.location.name || formatCoords(weather.location);
-      const u = unit ?? unitForCountry(weather.location.country);
-      el.unit.value = u;
+      place = weather.location; syncPlace();
+      const { zone } = createTimeFormatter(locationTimeZone(place));
+      el.place.textContent = place.name || formatCoords(place);
+      const u = unit ?? unitForCountry(place.country);
+      for (const b of controls.querySelectorAll('[data-unit]')) b.setAttribute('aria-pressed', String(b.dataset.unit === u));
       const temp = value => Number.isFinite(value) ? `${convertTemp(value, u)}°${u}` : '—';
       el.tempValue.textContent = convertTemp(weather.temperatureC, u); el.tempUnit.textContent = `°${u}`;
-      el.feels.textContent = `Feels like ${temp(weather.feelsLikeC)}`;
+      el.feels.textContent = `Feels like ${temp(weather.feelsLikeC)} · `;
       el.cond.textContent = `${LABELS[weather.condition]} · ${weather.windSpeed.toFixed(1)} m/s wind`;
-      el.status.textContent = source === 'mock' ? 'Sample data · not live weather' : `${source === 'openweathermap' ? 'OpenWeather' : 'Open-Meteo'} · ${stale || isStale(weather, updatedAt) ? 'Stale reading · ' : ''}Updated ${time(updatedAt)} · data ${time(weather.observedAt)} · ${zone}`;
-      hours = nextHours(weather.forecast);
-      caption = h => `Preview · ${previewLabel(h.time, Date.now(), zone)}`;
-      el.rain.textContent = hours.length ? `${precipitationSummary(hours, time)} (${zone})` : 'Hourly forecast unavailable.';
-      const key = `${u}|${zone}|${hours.map(h => h.time).join()}`;
-      if (!shown || shown.key !== key || shown.forecast !== weather.forecast) {
-        const refocus = el.hours.contains(document.activeElement);
-        el.hours.replaceChildren(...hours.map(h => {
-          const cell = document.createElement('button'); cell.type = 'button'; cell.className = 'forecast__hour';
-          cell.setAttribute('role', 'radio'); cell.dataset.time = h.time;
-          const amount = Number.isFinite(h.precipitationMm) ? `${h.precipitationMm.toFixed(1)} mm` : '— mm';
-          const chance = Number.isFinite(h.probability) ? `${h.probability}%` : '—%';
-          for (const text of [time(h.time), temp(h.temperatureC), `${chance} · ${amount}`, LABELS[h.condition] ?? '—']) { const line = document.createElement('span'); line.textContent = text; cell.append(line); }
-          return cell;
-        }));
-        shown = { key, forecast: weather.forecast };
-        if (!hours.some(h => h.time === selected)) dropSelection();
-        syncSelection();
-        if (refocus) api.focusSelected();
-      }
-      // Today / Tomorrow moves at local midnight: keep a surviving preview's caption current.
-      const kept = hours.find(h => h.time === selected);
-      if (kept) queueMicrotask(() => api.onPreview?.(kept, { caption: caption(kept), commit: false }));
-      el.credit.textContent = hours.length ? `${weather.forecastSource} · ${zone} · 24-hour times · rain/snow totals for preceding hour. Chance / amount; timing is approximate. Scroll for all hours.` : '';
+      const now = Date.now();
+      const day = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: zone }).format(now).replace(',', '');
+      const time = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: zone }).format(now);
+      el.date.textContent = `${day} · ${time}`;
+      sourceLine.textContent = `${source === 'mock' ? 'Sample data' : source === 'openweathermap' ? 'OpenWeather' : 'Open-Meteo'} · ${zone}${state.stale ? ' · Stale reading' : ''}`;
     },
   };
-  el.unit.onchange = () => { unit = el.unit.value; if (last) api.render(last); };
-  el.city.onchange = () => { const name = el.city.value; if (CITIES[name]) api.onLocation?.({ ...CITIES[name], name }); };
-  el.retry.onclick = () => api.onRefresh?.();
-  el.hours.addEventListener('click', e => {
-    const b = e.target.closest('[data-time]');
-    if (b) select(+b.dataset.time, true);
-  });
-  // Single tab stop; arrows / Home / End scrub (preview without lowering the phone sheet).
-  el.hours.addEventListener('keydown', e => {
-    const buttons = [...el.hours.children];
-    const i = buttons.indexOf(document.activeElement);
-    if (i < 0) return;
-    const n = buttons.length;
-    const next = { ArrowRight: i + 1, ArrowDown: i + 1, ArrowLeft: i - 1, ArrowUp: i - 1, Home: 0, End: n - 1 }[e.key];
-    if (next === undefined) return;
+  el.change.onclick = () => { editing = true; syncPlace(); el.city.focus({ preventScroll: true }); };
+  el.cancel.onclick = () => { editing = false; el.error.hidden = true; syncPlace(); el.change.focus({ preventScroll: true }); };
+  el.form.onsubmit = e => {
     e.preventDefault();
-    const b = buttons[Math.max(0, Math.min(n - 1, next))];
-    b.focus();
-    select(+b.dataset.time, false);
-  });
+    const location = parseLocationInput(el.city.value);
+    el.error.hidden = !!location;
+    el.error.textContent = 'City not found. Try Stockholm, London, Paris, New York, Chicago, Los Angeles or Tokyo.';
+    if (location) { api.setPlace(location, 'chosen'); api.onLocation?.(location); }
+  };
+  el.update.onclick = () => api.onRefresh?.();
+  for (const b of controls.querySelectorAll('[data-unit]')) b.onclick = () => { unit = b.dataset.unit; if (last) api.render(last); };
+  syncPlace();
   return api;
 }

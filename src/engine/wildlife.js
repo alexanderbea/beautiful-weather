@@ -9,7 +9,7 @@ export function waterContains(water, x, y) {
 // Passive observation only: no capture, preventDefault or scroll suppression.
 export function bindWildlifeInput(target, canvas, enabled, react) {
   let down = null;
-  const background = e => !e.defaultPrevented && !e.target.closest?.('button, input, select, label, a, nav, aside, #overlay, [role="group"]');
+  const background = e => !e.defaultPrevented && !e.target.closest?.('button, input, select, label, a, nav, aside, #overlay, [role="group"], .menu');
   const start = e => { down = e.isPrimary !== false && e.button === 0 && background(e)
     ? { id: e.pointerId, x: e.clientX, y: e.clientY, time: e.timeStamp } : null; };
   const cancel = () => { down = null; };
@@ -17,10 +17,6 @@ export function bindWildlifeInput(target, canvas, enabled, react) {
     const d = down; down = null;
     if (!d || d.id !== e.pointerId || !enabled() || !background(e)
       || e.timeStamp - d.time > 500 || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 8) return;
-    // The readout has pointer-events:none, so protect its bounds explicitly.
-    const readout = canvas.ownerDocument?.getElementById('overlay')?.getBoundingClientRect();
-    if (readout && e.clientX >= readout.left && e.clientX <= readout.right
-      && e.clientY >= readout.top && e.clientY <= readout.bottom) return;
     const r = canvas.getBoundingClientRect();
     react((e.clientX - r.left) * canvas.clientWidth / r.width,
       (e.clientY - r.top) * canvas.clientHeight / r.height);
@@ -44,6 +40,10 @@ export function createWaterWildlife(random = Math.random) {
     contains(x, y) { return waterContains(water, x, y); },
     setWater(value) { water = value; },
     get state() { return { fish: fishes[0] ? { ...fishes[0] } : null, fishes: fishes.map(fish => ({ ...fish })), ripples: ripples.map(r => ({ ...r })), cooldown }; },
+    hit(x, y, width) {
+      const scale = Math.max(1, Math.min(1.3, width / 1200));
+      return fishes.some(f => waterContains(water, f.x, f.y) && Math.hypot(x - f.x, y - (f.y - Math.sin(Math.PI * f.age / 1.8) * 48 * scale)) < 22 * scale);
+    },
     interact(x, y) {
       if (blocked || cooldown > 0 || !waterContains(water, x, y)) return false;
       cooldown = 1.8;

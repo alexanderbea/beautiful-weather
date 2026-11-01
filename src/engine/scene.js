@@ -172,6 +172,11 @@ export function createScene() {
     ambient,
     wildlife,
     resetWildlife() { wildlife.reset(); ambient.resetBirds(); },
+    interactAnimal(x, y, env) {
+      const bird = ambient.state.birdHits.some(b => Math.hypot(x - b.x, y - b.y) < 26);
+      if (bird) { ambient.interact(x, y, env); return true; }
+      return wildlife.hit(x, y, env.width);
+    },
     interact(x, y, env) { return ambient.interact(x, y, env) || wildlife.interact(x, y); },
 
     update(dt, env) {

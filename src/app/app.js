@@ -87,7 +87,7 @@ export async function startApp() {
   const engine = createEngine(document.getElementById('scene'));
   // ?units=c|f pins the temperature unit; otherwise it follows the location's country.
   const overlay = createOverlay(document.getElementById('overlay'), { unit: parseUnitParam(params.get('units')),
-    controls: document.getElementById('forecast-controls'), forecast: document.getElementById('forecast') });
+    controls: document.getElementById('forecast-controls'), sourceLine: document.getElementById('settings-source') });
   // ?source=mock swaps in canned sample data (dev/screenshots only); the default is always live.
   const service = createWeatherService({ useMock: params.get('source') === 'mock' });
 
@@ -204,28 +204,11 @@ export async function startApp() {
     apply();
   }
   overlay.onRefresh = () => { if (place) refresh(); };
-  // Previewing an hour eases the landscape to it; Back to now (or dismissing the menu) eases back.
   const menu = createForecastMenu({
     button: document.getElementById('menu-button'),
     panel: document.getElementById('forecast-menu'),
-    handle: document.querySelector('#forecast-menu [data-el="handle"]'),
-    caption: document.getElementById('preview-caption'),
-    back: document.getElementById('back-to-now'),
     landscape: document.getElementById('scene'),
-    onBackToNow: () => setPreview(null),
-    onDismiss: () => setPreview(null),
-    onExpand: () => overlay.focusSelected(),
   });
-  function setPreview(hour, { caption = null, commit = false } = {}) {
-    if (!hour) overlay.clearSelection();
-    menu.setPreview(hour ? caption : null, { commit });
-    const time = hour?.time ?? null;
-    if (time === previewTime) return;
-    previewTime = time;
-    // While a new city loads there is nothing to ease back to; refresh() applies its result.
-    if (live) apply();
-  }
-  overlay.onPreview = setPreview;
   // Desk mode: the scene full screen with an optional clock; mirrors the readout, so it shows live
   // weather (entering closes the menu, which drops any preview) and refreshes stale data on entry.
   const desk = createDeskMode({
@@ -237,6 +220,7 @@ export async function startApp() {
   trackReadout(document.getElementById('overlay'), box => engine.setReadout(box));
   overlay.onLocation = loc => {
     place = loc;
+    overlay.setPlace(loc, 'chosen');
     live = null;
     locationNote = '';
     overlay.render({ weather: null });
@@ -254,7 +238,7 @@ export async function startApp() {
     onLocation(loc) {
       overlay.onLocation(loc);
     },
-    toggleParent: document.getElementById('menu-foot'),
+    showToggle: false,
     getStats: () => {
       const st = engine.state;
       return { fps: engine.stats.fps, source, updatedAt, observedAt: live?.observedAt, effects: st.effects, solarElevation: st.solarElevation, twilight: st.twilight };
@@ -324,10 +308,12 @@ export async function startApp() {
   const pinned = locationFromParams(params);
   if (pinned) {
     place = pinned;
+    overlay.setPlace(place, 'chosen');
   } else {
     const result = await getDeviceLocation();
     if (!place) {
       place = result.location;
+      overlay.setPlace(place, result.fallback ? 'off' : 'device');
       if (result.fallback) locationNote = `location ${result.reason}, using ${place.name}`;
     }
   }

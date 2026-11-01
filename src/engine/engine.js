@@ -449,8 +449,12 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
   }
 
   const unbindWildlife = bindWildlifeInput(window, canvas,
-    () => running && !document.hidden && !reducedMotion,
-    (x, y) => scene.interact(x, y, env));
+    () => document.body.dataset.menu === 'open' || (running && !document.hidden && !reducedMotion),
+    (x, y) => {
+      if (document.body.dataset.menu === 'open') {
+        if (!scene.interactAnimal(x, y, env)) canvas.dispatchEvent(new Event('landscape-tap'));
+      } else scene.interact(x, y, env);
+    });
 
   window.addEventListener('focus', onCalendarReturn);
   window.addEventListener('pageshow', onCalendarReturn);
