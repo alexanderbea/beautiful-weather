@@ -25,6 +25,9 @@ export default async function verifyForecast(page) {
   check(await page.locator('[data-el=tempValue]').innerText() === '—', 'Loading must not invent a temperature');
   release();
   await page.waitForFunction(() => window.__bw?.live);
+  // City and scene controls live in the forecast menu, closed at rest.
+  const openMenu = async () => { if (await page.locator('#menu-button').getAttribute('aria-expanded') !== 'true') await page.locator('#menu-button').click(); };
+  await openMenu();
   check(requested, 'Existing provider request used');
   check((await page.locator('[data-el=note]').innerText()).includes('denied'), 'Denied location explained');
   check((await page.locator('[data-el=place]').innerText()) === 'Stockholm', 'City fallback');
@@ -37,7 +40,6 @@ export default async function verifyForecast(page) {
   check((await page.locator('[data-el=rain]').textContent()).includes('Precipitation forecast in the hour'), 'Hourly precipitation window');
   await page.getByLabel('Temperature units').selectOption('F');
   check(await page.locator('[data-el=tempValue]').innerText() === '50', 'Unit conversion');
-  if (!await page.locator('details').evaluate(e => e.open)) await page.locator('summary').click();
   await page.locator('.forecast__hours').evaluate(e => { e.scrollLeft = e.scrollWidth; });
   check(await page.locator('.forecast__hours').evaluate(e => e.scrollLeft > 0), 'Scrollable hourly list');
   fail = true;
@@ -58,11 +60,12 @@ export default async function verifyForecast(page) {
   await page.evaluate(async () => {
     const { createOverlay } = await import('/src/app/overlay.js');
     const root = document.createElement('div');
-    const overlay = createOverlay(root);
+    const controls = document.createElement('div');
+    const overlay = createOverlay(root, { controls, forecast: document.createElement('div') });
     const weather = { ...window.__bw.live, location: { lat: 59.3293, lng: 18.0686 } };
     overlay.loading(weather.location);
     overlay.render({ weather, source: 'open-meteo', updatedAt: Date.now() });
-    if (root.querySelector('[data-el=city]').value !== '') throw Error('Device coordinates must not imply a preset');
+    if (controls.querySelector('[data-el=city]').value !== '') throw Error('Device coordinates must not imply a preset');
     if (!root.querySelector('[data-el=status]').textContent.includes('UTC')) throw Error('Unknown timezone must label UTC');
   });
   await page.unroute('https://api.open-meteo.com/**');

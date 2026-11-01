@@ -44,7 +44,7 @@ export async function reduced() {
   return { pass: true, style: window.__bw.style.get(), staticCanvas: true };
 }
 export function layout() {
-  for (const selector of ['.overlay', '.scene-picker', '.style-picker']) {
+  for (const selector of ['.overlay', '#menu-button', '.style-picker']) {
     const r = document.querySelector(selector).getBoundingClientRect();
     check(r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight, selector + ' viewport bounds');
   }

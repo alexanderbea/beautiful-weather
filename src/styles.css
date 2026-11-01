@@ -116,26 +116,113 @@ html, body {
 .dev-toggle:focus-visible { outline: 1px solid rgba(232, 238, 246, 0.6); outline-offset: 2px; }
 
 
-.scene-picker { position: fixed; right: max(14px, env(safe-area-inset-right)); bottom: 64px; z-index: 5; padding: 8px 12px; border-radius: 18px; background: rgba(10,16,28,.8); color: #e8eef6; font-size: 12px; }
-.scene-picker select { font: inherit; color: inherit; background: #111b2b; border: 0; padding: 4px; border-radius: 5px; }
-.dev { z-index: 6; }
+/* Above the menu, whose footer holds its toggle. */
+.dev { z-index: 9; }
 
-/* Compact forecast stays in the sky; the landscape and bottom controls remain exposed. */
-.overlay { width: 390px; max-width: calc(100vw - 56px); padding: 16px; border-radius: 18px; background: rgba(9, 20, 35, .88); text-shadow: none; max-height: calc(100dvh - 150px); overflow-y: auto; }
-.overlay::before { display: none; }
-.overlay__temp { font-size: 58px; }
+/* Readout floats on the full-bleed landscape; everything else lives in the one forecast menu. */
+.overlay { max-width: min(360px, calc(100vw - 96px)); }
+.overlay::before { width: 520px; height: 360px; background: radial-gradient(520px 360px at 0 0, rgba(8, 16, 32, 0.6) 0%, rgba(8, 16, 32, 0.45) 50%, rgba(8, 16, 32, 0) 100%); }
 .overlay__note { line-height: 1.45; }
-.forecast-controls { display: flex; align-items: center; gap: 10px; margin: 12px 0; pointer-events: auto; font-size: 12px; }
-.forecast-controls select, .forecast-controls button { font: inherit; color: white; background: #23374b; border: 1px solid #678; border-radius: 5px; padding: 6px 3px; min-height: 36px; }
-.forecast { pointer-events: auto; border-top: 1px solid #ffffff30; padding-top: 10px; }
-.forecast summary { cursor: pointer; font-size: 14px; font-weight: 600; }
-.forecast p { font-size: 13px; line-height: 1.4; margin: 10px 0; }
-.forecast__hours { display: flex; overflow-x: auto; gap: 8px; padding-bottom: 8px; scrollbar-width: thin; }
-.forecast__hour { flex: 0 0 104px; display: grid; gap: 6px; padding: 8px; border-radius: 8px; background: #ffffff0c; font-size: 12px; }
-.forecast__hour span:nth-child(2) { font-size: 20px; }
-.forecast :focus-visible, .forecast-controls :focus-visible { outline: 2px solid white; outline-offset: 2px; }
-@media (max-width: 600px) {
-  .overlay { top: 12px; left: 12px; padding: 12px; max-width: calc(100vw - 56px); }
-  .overlay__temp { font-size: 44px; }
-  .forecast-controls { gap: 6px; }
+
+.menu-button {
+  position: fixed;
+  top: max(14px, env(safe-area-inset-top));
+  right: max(14px, env(safe-area-inset-right));
+  z-index: 8;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: #e8eef6;
+  background: rgba(10, 16, 28, 0.5);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background 0.25s ease;
 }
+.menu-button:hover { background: rgba(10, 16, 28, 0.72); }
+.menu-button[aria-expanded='false'] .menu-button__x, .menu-button[aria-expanded='true'] .menu-button__bars { display: none; }
+
+.menu {
+  --menu-w: clamp(320px, 33.333vw, 520px);
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 7;
+  width: var(--menu-w);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: max(72px, calc(env(safe-area-inset-top) + 58px)) max(20px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) 20px;
+  overflow-y: auto;
+  color: #e8eef6;
+  background: rgba(9, 20, 35, 0.9);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  transition: transform 0.3s ease, visibility 0s;
+}
+.menu[data-state='closed'] { visibility: hidden; transform: translateX(100%); transition: transform 0.3s ease, visibility 0s 0.3s; }
+.menu__handle { display: none; }
+.menu__body { display: flex; flex-direction: column; gap: 14px; }
+.menu label { font-size: 12px; }
+.menu select, .menu button { font: inherit; color: white; background: #23374b; border: 1px solid #678; border-radius: 5px; padding: 6px 4px; min-height: 36px; }
+.menu button { cursor: pointer; }
+.forecast-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 12px; }
+.scene-picker select { margin-left: 4px; }
+.forecast { border-top: 1px solid #ffffff30; padding-top: 10px; }
+.forecast__title { margin: 0; font-size: 14px; font-weight: 600; }
+.forecast p { font-size: 13px; line-height: 1.4; margin: 10px 0; }
+.forecast__hours { display: flex; overflow-x: auto; gap: 8px; padding: 2px 2px 8px; scrollbar-width: thin; }
+.menu .forecast__hour { flex: 0 0 104px; display: grid; gap: 6px; padding: 8px; border-radius: 8px; border: 1px solid transparent; background: #ffffff0c; font-size: 12px; text-align: left; }
+.menu .forecast__hour:hover { background: #ffffff1c; }
+.menu .forecast__hour[aria-checked='true'] { background: #e8eef6; color: #0a101c; }
+.forecast__hour span:nth-child(2) { font-size: 20px; }
+.menu__now { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 36px; }
+.menu__caption { margin: 0; font-size: 14px; font-weight: 600; }
+/* Quiet until an hour is previewed. */
+.menu .menu__back[aria-disabled='true'] { opacity: 0.4; cursor: default; background: transparent; }
+.menu.is-previewing .menu__back { background: #e8eef6; color: #0a101c; border-color: #e8eef6; font-weight: 600; }
+.menu__foot { margin-top: auto; }
+.menu .dev-toggle { position: static; width: auto; height: auto; padding: 4px 8px; border-radius: 6px; opacity: 0.6; display: inline-flex; gap: 6px; }
+.menu :focus-visible, .menu-button:focus-visible { outline: 2px solid white; outline-offset: 2px; }
+
+/* Desktop: the landscape stays beside the panel, so corner controls move clear of it. */
+@media (min-width: 601px) {
+  body[data-menu='open'] .style-picker, body[data-menu='lowered'] .style-picker { right: calc(clamp(320px, 33.333vw, 520px) + 14px); }
+  body[data-menu='open'] .overlay, body[data-menu='lowered'] .overlay { max-width: min(360px, calc(100vw - clamp(320px, 33.333vw, 520px) - 48px)); }
+}
+/* Narrow desktop: no room for the corner pills beside the open panel. */
+@media (min-width: 601px) and (max-width: 900px) {
+  body[data-menu='open'] .style-picker, body[data-menu='lowered'] .style-picker { visibility: hidden; }
+}
+
+/* Phone: a bottom sheet with the landscape above it; previewing lowers it to its handle. */
+@media (max-width: 600px) {
+  .overlay { top: 12px; left: 12px; max-width: calc(100vw - 88px); }
+  .overlay__temp { font-size: 44px; }
+  .menu {
+    top: auto;
+    left: 0;
+    width: auto;
+    max-height: 62dvh;
+    gap: 10px;
+    padding: 0 max(16px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    border-left: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 18px 18px 0 0;
+    background: rgb(14, 26, 42); /* opaque so the sticky handle matches the sheet */
+  }
+  .menu[data-state='closed'] { transform: translateY(100%); }
+  .menu .menu__handle { display: grid; place-items: center; position: sticky; top: 0; z-index: 1; width: calc(100% + 32px); margin: 0 -16px; min-height: 32px; padding: 10px 0 8px; border: 0; border-radius: 18px 18px 0 0; background: rgb(14, 26, 42); }
+  .menu__grip { width: 40px; height: 5px; border-radius: 3px; background: rgba(232, 238, 246, 0.55); }
+  .menu[data-state='lowered'] .menu__body, .menu[data-state='lowered'] .menu__foot { display: none; }
+  .forecast-controls { gap: 6px; }
+  body[data-menu='open'] .audio-ctl, body[data-menu='open'] .style-picker,
+  body[data-menu='lowered'] .audio-ctl, body[data-menu='lowered'] .style-picker { visibility: hidden; }
+}
+@media (prefers-reduced-motion: reduce) { .menu, .menu[data-state='closed'] { transition: none; } }

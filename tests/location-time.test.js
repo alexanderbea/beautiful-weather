@@ -52,3 +52,11 @@ test('precipitation across midnight labels both dates', () => {
   const summary = precipitationSummary([{ time: Date.parse('2026-12-31T15:00Z'), precipitationMm: 1 }], f.format);
   assert.match(summary, /Dec 31, 23:00 GMT\+9–Jan 1, 00:00 GMT\+9/);
 });
+
+test('preview caption names today / tomorrow by the location calendar, 24-hour', async () => {
+  const { previewLabel } = await import('../src/app/time.js');
+  const now = Date.parse('2026-11-01T22:30Z'); // Nov 1 23:30 in Stockholm, Nov 2 07:30 in Tokyo
+  assert.equal(previewLabel(Date.parse('2026-11-02T13:00Z'), now, 'Europe/Stockholm', 'en-US'), 'Tomorrow 14:00');
+  assert.equal(previewLabel(Date.parse('2026-11-02T05:00Z'), now, 'Asia/Tokyo', 'en-US'), 'Today 14:00');
+  assert.equal(previewLabel(Date.parse('2026-11-01T23:00Z'), now, 'Europe/Stockholm', 'en-US'), 'Tomorrow 00:00');
+});

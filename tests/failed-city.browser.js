@@ -12,9 +12,12 @@ export default async function verifyFailedCity(page) {
       is_day: 1, weather_code: tokyo ? 61 : 71, wind_speed_10m: 5,
     } } });
   });
+  // City and scene controls live in the forecast menu, closed at rest.
+  const openMenu = async () => { if (await page.locator('#menu-button').getAttribute('aria-expanded') !== 'true') await page.locator('#menu-button').click(); };
   const loadTokyo = async () => {
     await page.goto(`${origin}/?lat=35.6762&lng=139.6503&name=Tokyo&country=JP`);
     await page.waitForFunction(() => window.__bw?.live?.condition === 'rain');
+    await openMenu();
   };
   try {
     for (const paused of [false, true]) {

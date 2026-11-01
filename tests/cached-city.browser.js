@@ -24,6 +24,9 @@ export default async function checkCachedCity(page, {
     : 'lat=35.6762&lng=139.6503&name=Tokyo&country=JP';
   await page.goto(`${baseURL}/?${city}&elev=30&parallax=0&ambient=0&skyline=off&style=default`);
   await page.waitForFunction(() => !!window.__bw);
+  // City and scene controls live in the forecast menu, closed at rest.
+  const openMenu = async () => { if (await page.locator('#menu-button').getAttribute('aria-expanded') !== 'true') await page.locator('#menu-button').click(); };
+  await openMenu();
   // Read actual painted pixels, not the engine's target condition/effect names.
   const pixels = () => page.evaluate(() => {
     const canvas = document.querySelector('#scene');

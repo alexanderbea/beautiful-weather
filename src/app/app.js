@@ -4,6 +4,7 @@ import { createWeatherService } from '../data/weatherService.js';
 import { cannedWeather } from '../data/sources/mockSource.js';
 import { CONDITIONS, NIGHT_ONLY, SUNRISE_ELEVATION, DEFAULT_LOCATION, isDaylight, solarElevationAt } from '../data/model.js';
 import { createOverlay } from './overlay.js';
+import { createForecastMenu } from './forecastMenu.js';
 import { createDevControls } from './devControls.js';
 import { getDeviceLocation, locationFromParams } from './location.js';
 import { parseUnitParam } from './units.js';
@@ -46,7 +47,8 @@ export async function startApp() {
   const params = new URLSearchParams(location.search);
   const engine = createEngine(document.getElementById('scene'));
   // ?units=c|f pins the temperature unit; otherwise it follows the location's country.
-  const overlay = createOverlay(document.getElementById('overlay'), { unit: parseUnitParam(params.get('units')) });
+  const overlay = createOverlay(document.getElementById('overlay'), { unit: parseUnitParam(params.get('units')),
+    controls: document.getElementById('forecast-controls'), forecast: document.getElementById('forecast') });
   // ?source=mock swaps in canned sample data (dev/screenshots only); the default is always live.
   const service = createWeatherService({ useMock: params.get('source') === 'mock' });
 
@@ -58,6 +60,7 @@ export async function startApp() {
   let place = null;
   let stale = false;
   let refreshId = 0;
+  let previewTime = null; // epoch ms of the forecast hour shown on the landscape; null is now
 
   const initialOverrides = {
     condition: CONDITIONS.includes(params.get('condition')) ? params.get('condition') : null,
@@ -90,15 +93,27 @@ export async function startApp() {
   const audio = createAmbientAudio();
   createAudioControl(document.getElementById('audio-ctl'), audio);
 
+  /** Live weather, or the previewed forecast hour's sky, wind and sun on the same location. */
+  function current() {
+    const hour = previewTime === null ? null : live?.forecast.find(h => h.time === previewTime);
+    if (!hour) return { weather: live, at: Date.now() };
+    const solarElevation = solarElevationAt(live.location, hour.time);
+    return { at: hour.time, weather: { ...live,
+      condition: hour.condition ?? live.condition, // no hourly code: keep the current sky, the sun still moves
+      windSpeed: hour.windSpeed ?? live.windSpeed,
+      isDay: hour.isDay ?? solarElevation > SUNRISE_ELEVATION, solarElevation } };
+  }
+
   function effective() {
     if (!live) return null;
+    const { weather: now, at } = current();
     // A condition override swaps in canned numbers so the readout stays plausible.
     const base = overrides.condition
-      ? { ...cannedWeather(overrides.condition, live.location), isDay: live.isDay, solarElevation: live.solarElevation, location: live.location }
-      : live;
+      ? { ...cannedWeather(overrides.condition, now.location), isDay: now.isDay, solarElevation: now.solarElevation, location: now.location }
+      : now;
     let isDay = base.isDay;
     let solarElevation = base.solarElevation;
-    let sunRising = sunRisingAt(base.location);
+    let sunRising = sunRisingAt(base.location, at);
     const pinned = elevOverride ?? (overrides.time ? TIME_ELEVATION[overrides.time] : null);
     if (pinned !== null) {
       solarElevation = pinned;
@@ -149,6 +164,28 @@ export async function startApp() {
     apply();
   }
   overlay.onRefresh = () => { if (place) refresh(); };
+  // Previewing an hour eases the landscape to it; Back to now (or dismissing the menu) eases back.
+  const menu = createForecastMenu({
+    button: document.getElementById('menu-button'),
+    panel: document.getElementById('forecast-menu'),
+    handle: document.querySelector('#forecast-menu [data-el="handle"]'),
+    caption: document.getElementById('preview-caption'),
+    back: document.getElementById('back-to-now'),
+    landscape: document.getElementById('scene'),
+    onBackToNow: () => setPreview(null),
+    onDismiss: () => setPreview(null),
+    onExpand: () => overlay.focusSelected(),
+  });
+  function setPreview(hour, { caption = null, commit = false } = {}) {
+    if (!hour) overlay.clearSelection();
+    menu.setPreview(hour ? caption : null, { commit });
+    const time = hour?.time ?? null;
+    if (time === previewTime) return;
+    previewTime = time;
+    // While a new city loads there is nothing to ease back to; refresh() applies its result.
+    if (live) apply();
+  }
+  overlay.onPreview = setPreview;
   overlay.onLocation = loc => {
     place = loc;
     live = null;
@@ -168,6 +205,7 @@ export async function startApp() {
     onLocation(loc) {
       overlay.onLocation(loc);
     },
+    toggleParent: document.getElementById('menu-foot'),
     getStats: () => {
       const st = engine.state;
       return { fps: engine.stats.fps, source, updatedAt, observedAt: live?.observedAt, effects: st.effects, solarElevation: st.solarElevation, twilight: st.twilight };
@@ -233,5 +271,5 @@ export async function startApp() {
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { tickSun(); if (!updatedAt || Date.now() - updatedAt >= REFRESH_MS) refresh(); } });
 
   // Handy for console experiments, e.g. __bw.engine.setThemes({ rain: { day: { sky: { top: '#000' } } } })
-  window.__bw = { engine, audio, service, refresh, style: styleState, get live() { return live; }, get updatedAt() { return updatedAt; } };
+  window.__bw = { engine, audio, service, refresh, style: styleState, menu, get live() { return live; }, get updatedAt() { return updatedAt; }, get previewTime() { return previewTime; } };
 }

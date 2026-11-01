@@ -7,7 +7,8 @@
  *   condition: Condition,
  *   temperatureC: number,
  *   feelsLikeC: number|null,
- *   forecast: Array<{time: number, temperatureC: number|null, precipitationMm: number|null, probability: number|null}>,
+ *   forecast: Array<{time: number, temperatureC: number|null, precipitationMm: number|null, probability: number|null,
+ *     condition?: Condition|null, windSpeed?: number|null, isDay?: boolean|null}>,
  *   forecastSource: string|null,
  *   windSpeed: number,      // m/s
  *   humidity?: number,      // 0-100

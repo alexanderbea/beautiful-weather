@@ -18,7 +18,9 @@ export default async function verifyCityTime(page, base = 'http://host.docker.in
       if (coords) { const [latitude, longitude] = JSON.parse(coords); ok({ coords: { latitude, longitude, accuracy: 20 } }); } else error({ code: 1, PERMISSION_DENIED: 1 });
     } } });
   });
-  const text = s => page.locator(`#overlay ${s}`).innerText();
+  // City and scene controls live in the forecast menu, closed at rest.
+  const openMenu = async () => { if (await page.locator('#menu-button').getAttribute('aria-expanded') !== 'true') await page.locator('#menu-button').click(); };
+  const text = s => page.locator(`:is(#overlay, #forecast-menu) ${s}`).innerText();
   const rows = () => page.locator('.forecast__hour span:first-child').allInnerTexts();
   const load = async (startIso, geo = null) => {
     const start = Date.parse(startIso);
@@ -28,6 +30,7 @@ export default async function verifyCityTime(page, base = 'http://host.docker.in
     await page.evaluate(g => g ? localStorage.setItem('qaGeo', JSON.stringify(g)) : localStorage.removeItem('qaGeo'), geo);
     await page.reload();
     await page.waitForFunction(() => window.__bw?.live);
+    await openMenu();
     return start;
   };
   const choose = async city => {

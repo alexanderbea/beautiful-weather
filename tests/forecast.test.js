@@ -66,3 +66,9 @@ test('OpenWeather reuses feels-like and adds keyless forecast; forecast failure 
   const partial = await source.fetchCurrent(DEFAULT_LOCATION);
   assert.equal(partial.temperatureC, 10); assert.deepEqual(partial.forecast, []);
 });
+test('hourly sky, wind and day flag feed the landscape preview; missing codes stay unknown', () => {
+  const w = parseOpenMeteo({ ...data, hourly: { ...data.hourly, weather_code: [71, null], wind_speed_10m: [3, 12], is_day: [0, 1] } }, DEFAULT_LOCATION);
+  assert.deepEqual([w.forecast[0].condition, w.forecast[0].windSpeed, w.forecast[0].isDay], ['snow', 3, false]);
+  assert.deepEqual([w.forecast[1].condition, w.forecast[1].isDay], [null, true]);
+  assert.equal(parseOpenMeteo(data, DEFAULT_LOCATION).forecast[0].condition, null);
+});
