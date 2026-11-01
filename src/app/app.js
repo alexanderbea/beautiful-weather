@@ -89,7 +89,7 @@ export async function startApp() {
   // ?parallax=0 disables the depth parallax (the dev strip checkbox toggles it live).
   const parallaxOn = params.get('parallax') !== '0';
   engine.setParallax(parallaxOn, { immediate: true });
-  // Ambient sound follows the effective weather; muted until the first user gesture (no autoplay).
+  // Ambient sound follows the effective weather; silent until the Sound button is pressed (no autoplay).
   const audio = createAmbientAudio();
   createAudioControl(document.getElementById('audio-ctl'), audio);
 

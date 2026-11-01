@@ -191,3 +191,14 @@ flags disable wildlife. Test with `node --test tests/*.test.js`; build with `npm
 - Day/night is a binary flag; there's no sunrise/sunset gradient or sun arc by time yet.
 - No thunderstorm/lightning (currently mapped to rain), and no precipitation intensity.
 - White overlay text has low contrast on the pale snow-day sky.
+
+## Ambient sound
+
+The bottom-left pill holds a **Sound** toggle and a mixer button. Sound starts only when Sound is
+pressed: other clicks, keys and restored preferences never start it, and every reload is silent until
+Sound is pressed again. The mixer has Mute, master Volume, Rain and Wind levels (Auto follows the
+weather; moving a slider pins a level, and pinned rain plays under any sky) and **Follow weather**,
+which returns rain and wind to Auto. Volume, mute and the levels are saved in localStorage
+(`bw.audio`); the on state is not. A hidden tab fades out and suspends audio; it resumes only when
+sound is on and not muted. A limiter after the master keeps the sum below clipping. Tests:
+`node --test tests/audio.test.js`; loop lengths: `node tests/audio-loops-probe.js`.

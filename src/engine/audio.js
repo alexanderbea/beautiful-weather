@@ -8,15 +8,61 @@
  *   night       crickets (stereo chirp field) over a very gentle wind
  *   hush        snow / fog: near-silent muffled air
  *
- * Every soundscape feeds its own fade gain -> master gain -> analyser -> destination. A change of
- * soundscape crossfades (equal-power approximation over FADE_S); a change inside one soundscape (wind
- * speed) just glides that soundscape's level. The AudioContext is only created in enable(), which the
- * caller must invoke from a user gesture (browsers block autoplay); until then setWeather() only
- * remembers the target. Buffers are generated lazily on first use, so there is no page-load cost.
+ * Every soundscape has a rain bus and a wind bus (plus crickets at night) feeding its own fade gain ->
+ * master gain -> limiter -> analyser -> destination. A change of soundscape crossfades (equal-power
+ * approximation over FADE_S); a change inside one soundscape (wind speed, a mixer slider) glides the
+ * bus level with setTargetAtTime, so nothing steps (no zipper noise, no clicks).
+ *
+ * Mixer: rain and wind each take a level in 0..1, or null to follow the weather (autoLevels). An
+ * explicit rain level plays rain over any sky; null keeps rain to rainy weather.
+ *
+ * Sound is audible only when it is on (setOn, an explicit user choice), not muted and the tab is
+ * visible. The AudioContext is only created by setOn(true) / enable(), which the caller must invoke
+ * from a user gesture (browsers block autoplay); until then setWeather() / setMix() only remember the
+ * target. Buffers are generated lazily on first use, so there is no page-load cost.
  */
 const FADE_S = 1.6;
-const MUTE_TAU = 0.08;
+const MUTE_TAU = 0.1;
 const LEVEL_TAU = 0.6;
+const MIX_TAU = 0.15; // slider moves: quick but still a glide
+const SUSPEND_MS = 900; // > 8 * MUTE_TAU: the master is at silence before the audio thread stops
+/** Rain bus gain at level 1. Auto rain sits at RAIN_AUTO, i.e. the original mix. */
+const RAIN_MAX = 1.25;
+const RAIN_AUTO = 0.8;
+/** Wind bus per soundscape: gain = (base + per * wind/20 m/s) when following the weather. */
+const WIND = {
+  day: { base: 0.08, per: 0.55, center: 420, dark: false },
+  night: { base: 0.05, per: 0.25, center: 300, dark: true },
+  hush: { base: 0.04, per: 0.12, center: 260, dark: true },
+  rain: { base: 0, per: 0.22, center: 360, dark: false },
+  'night-rain': { base: 0, per: 0.16, center: 300, dark: true },
+};
+/** Wind bus gain at level 1 (the strongest weather-following value of any soundscape). */
+const WIND_MAX = 0.63;
+const RAIN_KEYS = new Set(['rain', 'night-rain']);
+const clamp01 = (v) => Math.min(1, Math.max(0, v));
+
+/**
+ * Weather-following mixer levels (0..1, the same scale as the sliders) for a soundscape key and
+ * Weather. Rain only in rainy soundscapes; wind grows with windSpeed (capped at 20 m/s).
+ */
+export function autoLevels(key, w) {
+  const spec = WIND[key];
+  const s = Math.min(Math.max(w?.windSpeed ?? 3, 0), 20) / 20;
+  return {
+    rain: RAIN_KEYS.has(key) ? RAIN_AUTO : 0,
+    wind: spec ? clamp01((spec.base + spec.per * s) / WIND_MAX) : 0,
+  };
+}
+
+/** Effective levels: explicit mixer values win, null follows the weather. */
+export function mixLevels(key, w, mix = {}) {
+  const auto = autoLevels(key, w);
+  return {
+    rain: mix.rain == null ? auto.rain : clamp01(+mix.rain || 0),
+    wind: mix.wind == null ? auto.wind : clamp01(+mix.wind || 0),
+  };
+}
 
 /** Soundscape key for a (effective) Weather: condition + day/night, as the renderer sees it. */
 export function soundscapeFor(w) {
@@ -190,91 +236,96 @@ function lfo(ctx, param, hz, depth, sources) {
   sources.push(osc);
 }
 
-const windLevel = (w, base, per) => base + per * Math.min(Math.max(w?.windSpeed ?? 3, 0), 20) / 20;
-
-function buildWind(ctx, bank, out, sources, { level, center = 380, dark = false }) {
+/** Gust-modulated wind into `out` (unity level; the bus gain after it sets the loudness). */
+function buildWind(ctx, bank, out, sources, { center = 380, dark = false }) {
   const bp = filter(ctx, 'bandpass', center, 0.55);
   const lp = filter(ctx, 'lowpass', dark ? 700 : 1400);
-  const g = gain(ctx, level);
+  const g = gain(ctx, 1);
   sources.push(loop(ctx, bank('brown'), bp));
   chain(ctx, bp, lp, g, out);
   lfo(ctx, bp.frequency, 0.045, center * 0.4, sources); // the gust "whoosh" moves in pitch...
-  lfo(ctx, g.gain, 0.07, level * 0.45, sources); // ...and swells in level
-  return g;
+  lfo(ctx, g.gain, 0.07, 0.45, sources); // ...and swells in level
 }
+
+/** Rain layers into `out`: pink hiss (high-passed so it reads as rain, not static), rumble, drops. */
+function buildRain(ctx, bank, out, sources, night) {
+  const hp = filter(ctx, 'highpass', 450);
+  const hissLp = filter(ctx, 'lowpass', night ? 3200 : 7000);
+  const hiss = gain(ctx, night ? 0.26 : 0.42);
+  sources.push(loop(ctx, bank('pink'), hp));
+  chain(ctx, hp, hissLp, hiss, out);
+  lfo(ctx, hiss.gain, 0.09, 0.06, sources);
+
+  const rumbleLp = filter(ctx, 'lowpass', night ? 380 : 600);
+  const rumble = gain(ctx, night ? 0.18 : 0.3);
+  sources.push(loop(ctx, bank('brown'), rumbleLp, { offset: 3.3 }));
+  chain(ctx, rumbleLp, rumble, out);
+
+  const dropsLp = filter(ctx, 'lowpass', night ? 2600 : 9000);
+  const drops = gain(ctx, night ? 0.35 : 0.5);
+  sources.push(loop(ctx, bank(night ? 'drops-night' : 'drops'), dropsLp));
+  chain(ctx, dropsLp, drops, out);
+}
+
+/**
+ * The looped buffers ("assets") the soundscapes are built from. Rain uses pink + brown + drops,
+ * wind uses brown, night adds crickets. `seconds` is the loop length.
+ */
+export const BANK = {
+  pink: { seconds: 6, make: (ctx) => noiseBuffer(ctx, 'pink', 6, 11) },
+  brown: { seconds: 8, make: (ctx) => noiseBuffer(ctx, 'brown', 8, 23) },
+  drops: { seconds: 7, make: (ctx) => dropsBuffer(ctx, { seconds: 7, perSecond: 38, fMin: 1800, fMax: 5200, seed: 5 }) },
+  'drops-night': { seconds: 7, make: (ctx) => dropsBuffer(ctx, { seconds: 7, perSecond: 18, fMin: 900, fMax: 3000, seed: 9 }) },
+  crickets: { seconds: 11, make: (ctx) => cricketsBuffer(ctx, 11, 3) },
+};
 
 export function createAmbientAudio({ volume = 0.6 } = {}) {
   let ctx = null;
   let master = null;
   let analyser = null;
-  let muted = true;
+  let on = false; // explicit user choice; never restored from storage
+  let muted = false;
   let vol = volume;
+  let mix = { rain: null, wind: null };
   let target = null; // last Weather seen
   let suspendTimer = 0;
   const buffers = new Map();
-  /** key -> { key, out, sources, level, update, stopTimer } (includes tracks still fading out) */
+  /** key -> track (includes tracks still fading out) */
   const tracks = new Map();
   let currentKey = null;
 
   function bank(name) {
-    if (!buffers.has(name)) {
-      const make = {
-        pink: () => noiseBuffer(ctx, 'pink', 6, 11),
-        brown: () => noiseBuffer(ctx, 'brown', 8, 23),
-        drops: () => dropsBuffer(ctx, { seconds: 7, perSecond: 38, fMin: 1800, fMax: 5200, seed: 5 }),
-        'drops-night': () => dropsBuffer(ctx, { seconds: 7, perSecond: 18, fMin: 900, fMax: 3000, seed: 9 }),
-        crickets: () => cricketsBuffer(ctx, 11, 3),
-      }[name];
-      buffers.set(name, make());
-    }
+    if (!buffers.has(name)) buffers.set(name, BANK[name].make(ctx));
     return buffers.get(name);
   }
 
-  function build(key, w) {
+  function build(key) {
     const out = gain(ctx, 0);
     out.connect(master);
     const sources = [];
-    let levelNode = null;
-    let levelFor = () => null;
-    if (key === 'rain' || key === 'night-rain') {
-      // Pink hiss (high-passed so it reads as rain, not static) + low rumble + drop ticks.
-      const night = key === 'night-rain';
-      const hp = filter(ctx, 'highpass', 450);
-      const hissLp = filter(ctx, 'lowpass', night ? 3200 : 7000);
-      const hiss = gain(ctx, night ? 0.26 : 0.42);
-      sources.push(loop(ctx, bank('pink'), hp));
-      chain(ctx, hp, hissLp, hiss, out);
-      lfo(ctx, hiss.gain, 0.09, 0.06, sources);
-
-      const rumbleLp = filter(ctx, 'lowpass', night ? 380 : 600);
-      const rumble = gain(ctx, night ? 0.18 : 0.3);
-      sources.push(loop(ctx, bank('brown'), rumbleLp, { offset: 3.3 }));
-      chain(ctx, rumbleLp, rumble, out);
-
-      const dropsLp = filter(ctx, 'lowpass', night ? 2600 : 9000);
-      const drops = gain(ctx, night ? 0.35 : 0.5);
-      sources.push(loop(ctx, bank(night ? 'drops-night' : 'drops'), dropsLp));
-      chain(ctx, dropsLp, drops, out);
-    } else if (key === 'night') {
+    const night = key === 'night' || key === 'night-rain';
+    const windBus = gain(ctx, 0);
+    windBus.connect(out);
+    buildWind(ctx, bank, windBus, sources, WIND[key]);
+    const rainBus = gain(ctx, 0);
+    rainBus.connect(out);
+    let rainBuilt = false;
+    if (key === 'night') {
       const cr = gain(ctx, 1.4);
       const crHp = filter(ctx, 'highpass', 2500);
       sources.push(loop(ctx, bank('crickets'), crHp));
       chain(ctx, crHp, cr, out);
       lfo(ctx, cr.gain, 0.03, 0.3, sources); // the field breathes a little
-      levelFor = (x) => windLevel(x, 0.05, 0.25);
-      levelNode = buildWind(ctx, bank, out, sources, { level: levelFor(w), center: 300, dark: true });
-    } else if (key === 'hush') {
-      levelFor = (x) => windLevel(x, 0.04, 0.12);
-      levelNode = buildWind(ctx, bank, out, sources, { level: levelFor(w), center: 260, dark: true });
-    } else { // day: light wind, close to silence when calm
-      levelFor = (x) => windLevel(x, 0.08, 0.55);
-      levelNode = buildWind(ctx, bank, out, sources, { level: levelFor(w), center: 420 });
     }
     return {
       key, out, sources, stopTimer: 0,
-      update(x) {
-        const v = levelFor(x);
-        if (levelNode && v !== null) levelNode.gain.setTargetAtTime(v, ctx.currentTime, LEVEL_TAU);
+      /** Glides both buses to the current mixer levels (tau: weather glide or quicker slider glide). */
+      update(tau = LEVEL_TAU) {
+        const lv = mixLevels(key, target, mix);
+        if (lv.rain > 0 && !rainBuilt) { buildRain(ctx, bank, rainBus, sources, night); rainBuilt = true; }
+        const now = ctx.currentTime;
+        rainBus.gain.setTargetAtTime(lv.rain * RAIN_MAX, now, tau);
+        windBus.gain.setTargetAtTime(lv.wind * WIND_MAX, now, tau);
       },
     };
   }
@@ -302,27 +353,34 @@ export function createAmbientAudio({ volume = 0.6 } = {}) {
 
   function switchTo(key) {
     if (!ctx) return;
-    if (key === currentKey) { tracks.get(key)?.update(target); return; }
+    if (key === currentKey) { tracks.get(key)?.update(); return; }
     const prev = currentKey && tracks.get(currentKey);
     if (prev) fadeOut(prev);
     currentKey = key;
     if (!key) return;
     let t = tracks.get(key);
     if (t) clearTimeout(t.stopTimer); // coming back before it finished fading: revive it
-    else { t = build(key, target); tracks.set(key, t); }
-    t.update(target);
+    else { t = build(key); tracks.set(key, t); }
+    t.update();
     fade(t.out.gain, 1);
   }
 
+  const silent = () => !on || muted || document.hidden;
+
+  /**
+   * Glides the master to its target. When silent, the audio thread is suspended once the glide has
+   * reached silence (no click, no CPU); it resumes only when on, unmuted and visible.
+   */
   function applyMaster() {
     if (!ctx) return;
     clearTimeout(suspendTimer);
     const now = ctx.currentTime;
+    const quiet = silent();
     master.gain.cancelScheduledValues(now);
-    master.gain.setTargetAtTime(muted ? 0 : vol * vol, now, MUTE_TAU); // squared: closer to perceived loudness
-    if (muted || document.hidden) {
-      // Let the fade finish, then stop the audio thread entirely (no CPU while silent).
-      suspendTimer = setTimeout(() => { if ((muted || document.hidden) && ctx.state === 'running') ctx.suspend(); }, 400);
+    master.gain.setValueAtTime(master.gain.value, now);
+    master.gain.setTargetAtTime(quiet ? 0 : vol * vol, now, MUTE_TAU); // squared: closer to perceived loudness
+    if (quiet) {
+      suspendTimer = setTimeout(() => { if (silent() && ctx.state === 'running') ctx.suspend(); }, SUSPEND_MS);
     } else if (ctx.state !== 'running') {
       ctx.resume().catch(() => {});
     }
@@ -330,48 +388,75 @@ export function createAmbientAudio({ volume = 0.6 } = {}) {
 
   document.addEventListener('visibilitychange', applyMaster);
 
+  function enable() {
+    if (!ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return false;
+      ctx = new AC();
+      master = gain(ctx, 0);
+      // Brick-wall-ish safety limiter: stacked layers plus a high slider must not clip.
+      const limiter = ctx.createDynamicsCompressor();
+      limiter.threshold.value = -3;
+      limiter.knee.value = 3;
+      limiter.ratio.value = 20;
+      limiter.attack.value = 0.003;
+      limiter.release.value = 0.25;
+      analyser = ctx.createAnalyser();
+      analyser.fftSize = 2048;
+      master.connect(limiter).connect(analyser).connect(ctx.destination);
+      currentKey = null;
+      switchTo(soundscapeFor(target));
+    }
+    return true;
+  }
+
   return {
     /**
-     * Creates / resumes the AudioContext. Must be called from a user-gesture handler. Returns true
-     * when audio is available.
+     * Creates the AudioContext (without making sound). Must be called from a user-gesture handler.
+     * Returns true when Web Audio is available.
      */
-    enable() {
-      if (!ctx) {
-        const AC = window.AudioContext || window.webkitAudioContext;
-        if (!AC) return false;
-        ctx = new AC();
-        master = gain(ctx, 0);
-        analyser = ctx.createAnalyser();
-        analyser.fftSize = 2048;
-        master.connect(analyser).connect(ctx.destination);
-        const key = soundscapeFor(target);
-        currentKey = null;
-        switchTo(key);
-      }
-      if (ctx.state !== 'running' && !muted) ctx.resume().catch(() => {});
-      return true;
+    enable,
+    /** Explicit sound on / off. Turning on must happen inside a user gesture. Returns the new state. */
+    setOn(v) {
+      if (v && !enable()) return (on = false);
+      on = !!v;
+      applyMaster();
+      return on;
     },
     /** Follows the effective weather; crossfades when the soundscape changes. */
     setWeather(w) {
       target = w;
       switchTo(soundscapeFor(w));
     },
+    /** Mixer levels: { rain, wind } in 0..1, or null to follow the weather. Missing keys are kept. */
+    setMix(m = {}) {
+      mix = { ...mix, ...m };
+      if (ctx && currentKey) tracks.get(currentKey)?.update(MIX_TAU);
+    },
     setMuted(m) { muted = !!m; applyMaster(); },
-    setVolume(v) { vol = Math.min(1, Math.max(0, +v || 0)); applyMaster(); },
+    setVolume(v) { vol = clamp01(+v || 0); applyMaster(); },
+    get on() { return on; },
     get muted() { return muted; },
     get volume() { return vol; },
+    get mix() { return { ...mix }; },
+    /** The weather-following levels for the current weather (what null resolves to). */
+    get autoLevels() { return autoLevels(soundscapeFor(target), target); },
     /** Diagnostics for tests: which soundscape is playing and what is still fading out. */
     get state() {
       return {
         context: ctx ? ctx.state : 'none',
         soundscape: currentKey,
         tracks: [...tracks.keys()],
+        on,
         muted,
+        hidden: document.hidden,
         volume: vol,
+        mix: { ...mix },
+        master: master ? +master.gain.value.toFixed(4) : 0,
         gains: Object.fromEntries([...tracks.values()].map((t) => [t.key, +t.out.gain.value.toFixed(3)])),
       };
     },
-    /** RMS of the master output right now (0 when silent / not started). */
+    /** RMS of the output right now (0 when silent / not started). */
     level() {
       if (!analyser) return 0;
       const d = new Float32Array(analyser.fftSize);
@@ -379,6 +464,15 @@ export function createAmbientAudio({ volume = 0.6 } = {}) {
       let s = 0;
       for (const x of d) s += x * x;
       return Math.sqrt(s / d.length);
+    },
+    /** Largest absolute sample in the current analyser window (after the limiter). */
+    peak() {
+      if (!analyser) return 0;
+      const d = new Float32Array(analyser.fftSize);
+      analyser.getFloatTimeDomainData(d);
+      let p = 0;
+      for (const x of d) p = Math.max(p, Math.abs(x));
+      return p;
     },
   };
 }
