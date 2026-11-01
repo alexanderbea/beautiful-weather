@@ -1,7 +1,21 @@
+import { readoutLift } from './readoutClearance.js';
+
 // Three staggered streaks per eight seconds; no timers, emitters or retained particles.
 export const METEOR_PERIOD = 8;
 const STARTS = [.25, 2.65, 5.35];
 const LIFE = 1.65;
+// Track geometry (fractions of min(w, h)): travel over a life, and the longest (fireball) trail.
+const RUN_X = .17, RUN_Y = .085, TRAIL_X = .23, TRAIL_Y = TRAIL_X * .5;
+
+/**
+ * Start point of track i, dropped as a whole below the weather readout when any part of its path
+ * (head travel plus the longest trail) would cross it, so a streak never jumps mid-flight.
+ */
+export function meteorOrigin(i, w, h, readout) {
+  const m = Math.min(w, h);
+  const x = w * (.32 + i * .21), y = h * (.18 + (i % 2) * .17);
+  return { x, y: y + readoutLift(readout, x - TRAIL_X * m, y - TRAIL_Y * m, x + RUN_X * m, y + RUN_Y * m) };
+}
 export function meteorTracks(time, reducedMotion = false) {
   const cycle = Math.floor(time / METEOR_PERIOD);
   return STARTS.map((start, i) => {
@@ -37,9 +51,10 @@ export function createMeteors() {
       ctx.lineCap = 'round';
       for (const { i, phase, alpha, fireball } of meteorTracks(time, env.reducedMotion)) {
         if (alpha < .001) continue;
-        const x = w * (.32 + i * .21) + phase * Math.min(w, h) * .17;
-        const y = h * (.18 + (i % 2) * .17) + phase * Math.min(w, h) * .085;
-        const dx = Math.min(w, h) * (fireball ? .23 : .16), dy = dx * .5;
+        const o = meteorOrigin(i, w, h, env.readout);
+        const x = o.x + phase * Math.min(w, h) * RUN_X;
+        const y = o.y + phase * Math.min(w, h) * RUN_Y;
+        const dx = Math.min(w, h) * (fireball ? TRAIL_X : .16), dy = dx * .5;
         const trail = ctx.createLinearGradient(x-dx, y-dy, x, y);
         trail.addColorStop(0, 'rgba(255,244,220,0)');
         trail.addColorStop(.75, `rgba(255,244,220,${alpha * .6})`);

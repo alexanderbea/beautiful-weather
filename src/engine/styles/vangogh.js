@@ -336,7 +336,9 @@ function createInstance() {
       const { width: w, height: h, theme, time, sun, moon } = env;
       const s = dabScale(w, h);
       ctx.lineCap = 'round';
-      if (sun.alpha > 0.01) {
+      // The eclipse scene draws neither the sun nor the moon, so their rays and rings stay off too.
+      const eclipse = env.scene === 'eclipse';
+      if (sun.alpha > 0.01 && !eclipse) {
         const breath = 0.5 + 0.5 * Math.sin((time * TAU) / SUN_BREATH_S);
         const a = weight * sun.alpha * (SUN_RAY_ALPHA + SUN_RAY_BREATH * breath);
         const rot = time * SUN_SPIN;
@@ -376,7 +378,7 @@ function createInstance() {
           ctx.drawImage(star, fx * w - d / 2, fy * h - d / 2, d, d);
         }
       }
-      if (moon.alpha > 0.01) {
+      if (moon.alpha > 0.01 && !eclipse) {
         ctx.strokeStyle = rgba(STAR_RING);
         ctx.lineWidth = 3 * s;
         for (const [k, ra] of MOON_RINGS) {

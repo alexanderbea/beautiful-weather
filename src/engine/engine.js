@@ -59,6 +59,7 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
     width: 0, height: 0, dpr: 1, time: 0, dt: 0,
     theme: null, condition: 'clear', wind: 0, dayMix: 1, twilight: 0, solarElevation: DAY_ELEVATION, weight: 1,
     sun: null, moon: null, horizonY: 0,
+    readout: null, // weather readout text box { left, top, right, bottom } (CSS px) sky details keep clear of
     // Camera offset (px, near-layer shift) and per-layer horizontal shift (px, preallocated: [distant, mid, fore]).
     camX: 0, parallax: [0, 0, 0],
     rising: 0, // 0..1, eases toward the sunRising flag (dawn mist)
@@ -478,6 +479,11 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
       landmark = id ?? null;
       scene.resetWildlife();
       scene.setLandmark(landmark);
+    },
+    /** Weather readout text box { left, top, right, bottom } in CSS px, or null; see readoutClearance.js. */
+    setReadout(box) {
+      env.readout = box && [box.left, box.top, box.right, box.bottom].every(Number.isFinite)
+        ? { left: box.left, top: box.top, right: box.right, bottom: box.bottom } : null;
     },
     /** Depth parallax on/off; the amplitude fades rather than snapping unless opts.immediate. */
     setParallax(on, { immediate = false } = {}) {

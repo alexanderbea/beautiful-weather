@@ -1,8 +1,15 @@
+import { readoutLift } from './readoutClearance.js';
+
+// Visible corona radius (x disc r) kept clear of the weather readout.
+const CORONA_CLEAR = 1.6;
+
 /** Fixed totality composition; palette dimming uses the engine's existing eased transition. */
 export function drawEclipse(ctx, env) {
   const { width: w, height: h, artStyle } = env;
-  const x = w * .72, y = h * .25;
+  const x = w * .72;
   const r = Math.min(w, h) * .055 * artStyle.params.celestial.size;
+  const c = r * CORONA_CLEAR;
+  const y = h * .25 + readoutLift(env.readout, x - c, h * .25 - c, x + c, h * .25 + c);
   const glow = artStyle.params.celestial.glow;
   ctx.save();
   const corona = ctx.createRadialGradient(x, y, r * .95, x, y, r * 3.8);

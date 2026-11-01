@@ -2,6 +2,7 @@ import { drawHolidayScenery } from './holidayScenery.js';
 import { createWaterWildlife } from './wildlife.js';
 import { createMeteors } from './meteors.js';
 import { drawEclipse } from './eclipse.js';
+import { readoutShift } from './readoutClearance.js';
 import { rgba } from './color.js';
 import { createSkyline } from './skyline.js';
 import { createLighting } from './lighting.js';
@@ -17,6 +18,8 @@ const HILLS = [
   { base: 0.87, speed: 0.016, waves: [[0.035, 0.7, 5.1], [0.018, 1.9, 2.8], [0.009, 4.6, 0.9]] },
 ];
 export const HORIZON = HILLS[0].base;
+// Moon clearance radius (x moon r): covers the disc and Van Gogh's outermost moon ring (2.2 r).
+const MOON_CLEAR = 2.3;
 // Rim light strength per layer: the far ridge catches the most light.
 const RIM_LAYER = [1, 0.85, 0.7];
 // Sun height: 0.2h at e >= 12deg, at the horizon line at e = 0, fully behind the far hills by e ~ -4.
@@ -174,10 +177,17 @@ export function createScene() {
         r: m * 0.05 * theme.sun.size * bodySize,
         alpha: smoothstep(-5, -1, elev) * vis,
       };
+      // The moon (with Van Gogh's outer ring, MOON_CLEAR x r) moves just clear of the readout (down, or right
+      // if that is shorter) when it would sit behind it.
+      const moonX = w * 0.28;
+      const moonR = m * 0.035 * theme.moon.size * bodySize;
+      const moonY = h * (theme.moon.y + dayMix * 0.6);
+      const moonC = moonR * MOON_CLEAR;
+      const clear = readoutShift(env.readout, moonX - moonC, moonY - moonC, moonX + moonC, moonY + moonC, w * 0.55);
       env.moon = {
-        x: w * 0.28,
-        y: h * (theme.moon.y + dayMix * 0.6) + Math.sin(time * 0.05) * h * 0.004,
-        r: m * 0.035 * theme.moon.size * bodySize,
+        x: moonX + clear.dx,
+        y: moonY + clear.dy + Math.sin(time * 0.05) * h * 0.004,
+        r: moonR,
         alpha: (1 - dayMix) * (1 - twilight) ** 2 * Math.max(vis, 0.15),
       };
       env.horizonY = HORIZON * h;
