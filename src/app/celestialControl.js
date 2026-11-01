@@ -1,12 +1,13 @@
 import { bodyAt, handBody, HORIZON } from '../engine/celestial.js';
 import { solarElevationAt } from '../data/model.js';
-import { HOUR, DAY, dragHours, clampTime } from './playback.js';
+import { HOUR, dragHours } from './playback.js';
 import { locationTimeZone } from './cities.js';
-import { skyArc, classifyTap, localDayStart } from './skyTap.js';
+import { skyArc, classifyTap, onCorridor } from './skyTap.js';
 
 const TAP_SLOP = 8; // px a press may travel and still be a tap
 const MIN_HIT = 44; // px
 const BREATH_MS = 1600;
+const TAP_MS = 500; // a press held longer is not a tap
 
 /** A finger (or a coarse-pointer device): the tap path. A mouse always keeps the drag. */
 export function isCoarse(e, media = globalThis.matchMedia) {
@@ -32,9 +33,10 @@ export function handLabel(at, timeZone, body) {
  * tap, routed exactly like one (animals first; closes the sheet when it is open).
  *
  * Coarse pointer (a finger): no drag. Choosing is taps in the sky (see skyTap.js): the first tap on
- * the hand, the horizon or a cloud arms (ring, faint future arc, three beads, a horizon tick); a tap
- * on the arc plays that hour; the horizon or a cloud off the arc steps a day and stays armed; empty
- * ground or water lets go. Wildlife, the open sheet and a playing journey never reach it.
+ * the hand, the horizon or a cloud arms (ring, faint arc over the next day, one horizon tick); a touch
+ * down on the arc paints its nearest hour on the time line and the release there plays it (the tick
+ * and the path past it are the next day); the open horizon or a cloud off the arc leaves the arm as it
+ * is; empty ground or water lets go. Wildlife, the open sheet and a playing journey never reach it.
  */
 export function createCelestialControl({ engine, playback, getLive, hint = null }) {
   const hand = document.createElement('button');
@@ -43,13 +45,13 @@ export function createCelestialControl({ engine, playback, getLive, hint = null 
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.classList.add('celestial-selection');
   svg.setAttribute('aria-hidden', 'true');
-  svg.innerHTML = '<path class="selection-arc"/><path class="selection-tick"/><circle class="selection-bead"/><circle class="selection-bead"/><circle class="selection-bead"/>'
+  svg.innerHTML = '<path class="selection-arc"/><path class="selection-tick"/>'
     + '<circle class="selection-soft"/><circle class="selection-ghost"/><circle class="selection-ring"/><circle class="selection-breath"/>';
   document.body.append(svg, hand);
-  const [arc, tick, bead0, bead1, bead2, soft, ghost, ring, breathRing] = svg.children;
-  const beads = [bead0, bead1, bead2];
+  const [arc, tick, soft, ghost, ring, breathRing] = svg.children;
   let down = null, focused = false, touch = null;
-  let armed = null; // { body, day }: coarse choosing; the live sky stays on now
+  let armed = null; // { body }: coarse choosing; the live sky stays on now
+  let press = null; // armed touch down on the arc: { id, t, stamp }; only the time line shows `t`
   let breath = null, breathed = false;
 
   const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -69,20 +71,18 @@ export function createCelestialControl({ engine, playback, getLive, hint = null 
   }
 
   const setHint = (text, cls = '') => { if (!hint) return; if (hint.textContent !== text) hint.textContent = text; hint.className = `overlay__hint${cls ? ` ${cls}` : ''}`; };
-  const armedArc = () => skyArc(getLive().location, playback.origin + armed.day * DAY, armed.body, innerWidth, innerHeight, playback.range());
-  const arcD = points => points.map((q, i) => `${i ? 'L' : 'M'}${q.x.toFixed(1)},${q.y.toFixed(1)}`).join('');
+  const armedArc = () => skyArc(getLive().location, playback.origin, armed.body, innerWidth, innerHeight, playback.range());
+  const arcD = paths => paths.map(points => points.map((q, i) => `${i ? 'L' : 'M'}${q.x.toFixed(1)},${q.y.toFixed(1)}`).join('')).join('');
 
-  /** Armed: ring on the live hand, the faint future arc, beads, horizon tick, a ghost on a later day. */
+  /** Armed: ring on the live hand, the faint arc over the next day and one horizon tick. Nothing else. */
   function renderArmed(p) {
-    const a = armedArc(), s = playback.state;
+    const a = armedArc();
     svg.style.display = '';
     svg.classList.toggle('is-armed', true);
     setCircle(ring, p.x, p.y, p.r + 6);
-    const g = s.chosen === null ? null : path(s.chosen, armed.body);
-    setCircle(ghost, g?.x ?? 0, g?.y ?? 0, g ? radius(armed.body) : 0);
+    setCircle(ghost, 0, 0, 0); // the chosen hour is paint on the time line only
     setCircle(soft, p.x, p.y, (p.alpha ?? 1) < .35 ? p.r : 0);
-    arc.setAttribute('d', arcD(a.points));
-    beads.forEach((b, i) => { const q = a.beads[i]; setCircle(b, q?.x ?? 0, q?.y ?? 0, q ? 3 : 0); });
+    arc.setAttribute('d', arcD(a.paths));
     tick.setAttribute('d', a.tick ? `M${(a.tick.x - 6).toFixed(1)},${a.tick.y.toFixed(1)}h12` : '');
     setCircle(breathRing, 0, 0, 0);
     setHint('Tap ahead');
@@ -108,8 +108,6 @@ export function createCelestialControl({ engine, playback, getLive, hint = null 
     svg.classList.toggle('is-instant', reducedMotion());
     if (armed) { renderArmed(p); return; }
     svg.classList.toggle('is-armed', false);
-    svg.removeAttribute?.('data-step');
-    beads.forEach(b => setCircle(b, 0, 0, 0));
     tick.setAttribute('d', '');
     if (breath) { setCircle(breathRing, p.x, p.y, p.r + 6); setHint(`Tap the ${breath.body}`, 'is-breathing'); }
     else { setCircle(breathRing, 0, 0, 0); setHint(''); }
@@ -132,53 +130,86 @@ export function createCelestialControl({ engine, playback, getLive, hint = null 
 
   function cancelChoice() {
     if (down) down.cancelled = true;
-    armed = null;
+    armed = null; press = null;
     playback.cancel();
     render();
   }
 
-  /** Coarse choosing ends: the ring, arc, beads, tick, ghost and hint leave; then `t` plays (if any). */
+  /** Coarse choosing ends: the ring, arc, tick and hint leave; then `t` plays (if any). */
   function release(t = null) {
-    armed = null;
+    armed = null; press = null;
     if (t === null) playback.cancel();
     else { playback.select(t); playback.commit(); }
     render();
   }
 
   /** Coarse tap on the landscape (the engine asks first). True when the hand took it. */
-  function coarseTap(x, y, e) {
-    if (!isCoarse(e)) return false;
+  const tapOpen = (x, y, e) => {
     const live = getLive(), p = engine.celestial;
-    if (!live?.forecast?.length || !p || document.body.dataset.desk === 'on') return false;
-    if (document.body.dataset.menu === 'open') return false; // the sheet closes; an arm waits underneath
-    if (engine.animalContains(x, y)) return false; // a bird or a fish wins
-    if (playback.state.mode === 'playing') return false; // the hand is already traveling
-    const action = classifyTap({ x, y, armed: !!armed, hand: p, arc: armed ? armedArc() : null,
-      clouds: engine.cloudBoxes?.() ?? [], horizonY: HORIZON * innerHeight });
+    if (!isCoarse(e) || !live?.forecast?.length || !p || document.body.dataset.desk === 'on') return null;
+    if (document.body.dataset.menu === 'open') return null; // the sheet closes; an arm waits underneath
+    if (engine.animalContains(x, y)) return null; // a bird or a fish wins
+    if (playback.state.mode === 'playing') return null; // the hand is already traveling
+    return p;
+  };
+  const classify = (x, y, p) => classifyTap({ x, y, armed: !!armed, hand: p, arc: armed ? armedArc() : null,
+    clouds: engine.cloudBoxes?.() ?? [], horizonY: HORIZON * innerHeight });
+
+  /** Coarse tap on the landscape (the engine asks first). True when the hand took it. */
+  function coarseTap(x, y, e) {
+    const p = tapOpen(x, y, e);
+    if (!p) return false;
+    // The press that went down on the arc keeps its hour; the release only has to stay in the corridor.
+    const held = press && e?.pointerId === press.id ? press : null;
+    press = null;
+    const action = classify(x, y, p);
+    if (held && action.type !== 'hand') {
+      if (onCorridor(armedArc(), x, y) || action.type === 'hour') release(held.t);
+      else { playback.cancel(); render(); }
+      return true;
+    }
     switch (action.type) {
       case 'none': return false;
-      case 'arm': armed = { body: p.body, day: 0 }; breath = null; playback.cancel(); break;
-      case 'hand': {
-        const t = clampTime(playback.origin + armed.day * DAY, playback.range());
-        release(armed.day === 0 ? null : t); // still now: disarm, nothing plays
-        return true;
-      }
+      case 'arm': armed = { body: p.body }; breath = null; playback.cancel(); break;
+      case 'hand': release(); return true; // the hand is now: let go, nothing plays
       case 'hour': release(action.t); return true;
-      case 'day': {
-        const range = playback.range(), next = playback.origin + (armed.day + 1) * DAY;
-        if (localDayStart(next, locationTimeZone(live.location)) > range.max) break; // the last forecast day
-        armed.day++;
-        svg.setAttribute('data-step', armed.day % 2 ? 'a' : 'b');
-        playback.select(clampTime(next, range));
-        break;
-      }
       case 'clear': release(); return true;
-      default: break; // 'inert': before now or past the forecast; the arm stays
+      default: break; // 'inert': open horizon, a cloud off the arc, before now or past the forecast
     }
     render();
     return true;
   }
   engine.setTapHook?.(coarseTap);
+
+  // Armed touch down on the corridor (the tick and the hand included): only the time line moves to
+  // the nearest future hour; the live sky stays on now. A slide never moves it.
+  addEventListener('pointerdown', e => {
+    if (!armed || e.isPrimary === false || e.button !== 0) return;
+    if (e.target?.closest?.('button, input, select, label, a, nav, aside, #overlay, [role="group"], .menu')) return;
+    const p = tapOpen(e.clientX, e.clientY, e);
+    if (!p) return;
+    const a = armedArc(), action = classify(e.clientX, e.clientY, p);
+    const onHand = action.type === 'hand';
+    if (!onHand && !onCorridor(a, e.clientX, e.clientY) && action.type !== 'hour') { press = null; return; }
+    const t = action.type === 'hour' ? action.t : a.hours[0]?.t;
+    if (t == null) { press = null; return; }
+    press = { id: e.pointerId, t, stamp: e.timeStamp };
+    playback.select(t);
+    render();
+  }, { passive: true });
+  // The engine routes a quick, still press as a tap (and the hook above takes it). A quick slide that
+  // ends in the corridor plays the hour it went down on; a slide out of it, a long press or a cancel
+  // plays nothing and the arm stays.
+  const pressEnd = (e, cancelled) => {
+    if (!press || e.pointerId !== press.id) return;
+    const held = press; press = null;
+    if (!armed) return;
+    if (!cancelled && e.timeStamp - held.stamp <= TAP_MS && onCorridor(armedArc(), e.clientX, e.clientY)
+      && classify(e.clientX, e.clientY, engine.celestial).type !== 'hand') { release(held.t); return; }
+    playback.cancel(); render();
+  };
+  addEventListener('pointerup', e => pressEnd(e, false), { passive: true });
+  addEventListener('pointercancel', e => pressEnd(e, true), { passive: true });
 
   hand.addEventListener('focus', () => { focused = true; render(); });
   hand.addEventListener('blur', () => { focused = false; render(); });

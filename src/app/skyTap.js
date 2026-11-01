@@ -1,5 +1,5 @@
-import { bodyAt } from '../engine/celestial.js';
-import { HOUR } from './playback.js';
+import { bodyAt, HORIZON } from '../engine/celestial.js';
+import { HOUR, DAY } from './playback.js';
 
 /**
  * Coarse-pointer forecast choosing: taps in the sky instead of a drag. Pure geometry, shared by the
@@ -32,37 +32,43 @@ export function localDayStart(t, timeZone) {
 }
 
 /**
- * The armed arc: the above-horizon circuit `body` already travels around `center` (one day's pass),
- * split into the choosable part (after now, up to the last forecast hour) and the rest.
- * Returns { points, rest, hours, beads, tick }: `points` is the drawn future arc, `hours` the whole
- * forecast hours on it, `beads` the day marks (sun: dawn, midday, dusk; moon: dusk, midnight, dawn)
- * that fall on the future arc, `tick` where that arc meets the horizon (the next day), or null.
+ * The armed arc: where `body` travels over the next day (from `now`, about 24 h, cut short where the
+ * forecast ends), above the horizon only. Returns { paths, hours, tick, rest }:
+ *   paths  drawn segments of { t, x, y }: [later today until the body sets, then its next pass]
+ *   hours  the whole forecast hours on those segments ({ t, x, y })
+ *   tick   where the arc goes down through the horizon, { x, y, t }; `t` is the first hour of the
+ *          next pass (the tick belongs to the next day), or null when there is no next pass
+ *   rest   segments of the body's pass that are not choosable (before now, past the forecast)
  */
-export function skyArc(location, center, body, width, height, range) {
+export function skyArc(location, now, body, width, height, range) {
   const at = t => ({ t, ...bodyAt(location, t, width, height, body) });
-  // Up segments over the circuit centred on `center`; keep the one that holds (or is nearest) it.
-  const segments = [];
-  let seg = null;
-  for (let t = center - 12 * HOUR; t <= center + 12 * HOUR; t += STEP) {
-    const q = at(t);
-    if (q.up) { if (!seg) segments.push(seg = []); seg.push(q); } else seg = null;
+  const end = Math.min(now + DAY, range.max);
+  const choosable = t => t > range.min && t <= end;
+  const paths = [], rest = [];
+  let seg = null, kept = null;
+  for (let t = now - 12 * HOUR; t <= now + DAY + 12 * HOUR; t += STEP) {
+    const q = at(t), ok = choosable(t);
+    if (!q.up) { seg = null; continue; }
+    const list = ok ? paths : rest;
+    if (!seg || kept !== ok) { list.push(seg = []); kept = ok; }
+    seg.push(q);
   }
-  const near = s => Math.min(...s.map(q => Math.abs(q.t - center)));
-  const pass = segments.sort((a, b) => near(a) - near(b))[0] ?? [];
-  if (!pass.length) return { points: [], rest: [], hours: [], beads: [], tick: null };
-  const choosable = t => t > range.min && t <= range.max;
-  const points = pass.filter(q => choosable(q.t));
-  const rest = pass.filter(q => !choosable(q.t));
   const hours = [];
-  for (let t = Math.ceil(pass[0].t / HOUR) * HOUR; t <= pass[pass.length - 1].t; t += HOUR) {
+  for (let t = Math.floor(now / HOUR) * HOUR + HOUR; t <= end; t += HOUR) {
     const q = at(t);
     if (q.up && choosable(t)) hours.push(q);
   }
-  const peak = pass.reduce((a, b) => (b.y < a.y ? b : a));
-  const beads = [pass[0], peak, pass[pass.length - 1]].filter(q => choosable(q.t));
-  const end = pass[pass.length - 1];
-  const tick = points.length && points[points.length - 1] === end ? { x: end.x, y: end.y } : null;
-  return { points, rest, hours, beads, tick };
+  let tick = null;
+  const first = paths[0];
+  if (first) {
+    const last = first[first.length - 1];
+    const sets = !at(last.t + STEP).up && last.t + STEP <= end;
+    if (sets) {
+      const next = hours.find(h => h.t > last.t) ?? null;
+      tick = { x: last.x, y: height * HORIZON, t: next ? next.t : null };
+    }
+  }
+  return { paths, hours, tick, rest };
 }
 
 /** A cloud's box expanded to at least 44 px each way. */
@@ -73,14 +79,28 @@ export function cloudHit(box) {
 }
 const inside = (b, x, y) => x >= b.left && x <= b.right && y >= b.top && y <= b.bottom;
 
+const segmentsDistance = (segments, x, y) => Math.min(Infinity, ...segments.map(s => polylineDistance(s, x, y)));
+
+/** The hour a point on the armed path stands for: the nearest hour, or the tick (the next day). */
+function hourNear(arc, x, y, within = null) {
+  const marks = [...arc.hours, ...(arc.tick?.t != null ? [arc.tick] : [])].filter(q => !within || inside(within, q.x, q.y));
+  let best = null;
+  for (const q of marks) if (!best || dist(x, y, q) < dist(x, y, best)) best = q;
+  return best;
+}
+
+/** True when (x, y) is inside the 44 px corridor round the armed path (tick included). */
+export function onCorridor(arc, x, y) {
+  return !!arc && (segmentsDistance(arc.paths, x, y) <= HALF || (!!arc.tick && dist(x, y, arc.tick) <= HALF));
+}
+
 /**
  * What a coarse tap in the sky means. Wildlife, the open sheet and a playing journey are settled
  * before this (they never reach it). Not armed: the hand, the horizon band or a cloud arms ('arm');
  * anything else is an ordinary landscape tap ('none'). Armed:
- *   'hand'  the live hand (or a cloud hiding it): the armed day at the current clock hour
- *   'hour'  the 44 px corridor round the future arc (beads and tick included), or a cloud on the arc: { t }
- *   'inert' the arc before now or past the last forecast hour: nothing happens, the arm stays
- *   'day'   the horizon band or a cloud off the arc: one local day forward
+ *   'hand'  the live hand (or a cloud hiding it): let go, nothing plays
+ *   'hour'  the 44 px corridor round the arc (the tick included: the next day), or a cloud on it: { t }
+ *   'inert' the open horizon, a cloud off the arc, the path before now or past the forecast: the arm stays
  *   'clear' empty ground, water or sky: let go
  */
 export function classifyTap({ x, y, armed, hand, arc, clouds = [], horizonY }) {
@@ -90,17 +110,16 @@ export function classifyTap({ x, y, armed, hand, arc, clouds = [], horizonY }) {
   const onHorizon = Math.abs(y - horizonY) <= HALF;
   if (!armed) return { type: handHit || hidesHand || onHorizon || hit.length ? 'arm' : 'none' };
   if (handHit || hidesHand) return { type: 'hand' };
-  const nearest = (from, px, py) => from.reduce((a, q) => (!a || dist(px, py, q) < dist(px, py, a) ? q : a), null);
-  if (arc && polylineDistance(arc.points, x, y) <= HALF) {
-    const q = nearest(arc.hours, x, y);
+  if (onCorridor(arc, x, y)) {
+    const q = hourNear(arc, x, y);
     return q ? { type: 'hour', t: q.t } : { type: 'inert' };
   }
-  const onArc = arc && hit.find(b => arc.points.some(q => inside(b, q.x, q.y)));
+  const onArc = arc && hit.find(b => arc.paths.some(s => s.some(q => inside(b, q.x, q.y))) || (arc.tick && inside(b, arc.tick.x, arc.tick.y)));
   if (onArc) {
-    const q = nearest(arc.hours.filter(h => inside(onArc, h.x, h.y)), x, y) ?? nearest(arc.hours, x, y);
+    const q = hourNear(arc, x, y, onArc) ?? hourNear(arc, x, y);
     return q ? { type: 'hour', t: q.t } : { type: 'inert' };
   }
-  if (onHorizon || hit.length) return { type: 'day' };
-  if (arc && polylineDistance(arc.rest, x, y) <= HALF) return { type: 'inert' };
+  if (onHorizon || hit.length) return { type: 'inert' };
+  if (arc && segmentsDistance(arc.rest, x, y) <= HALF) return { type: 'inert' };
   return { type: 'clear' };
 }

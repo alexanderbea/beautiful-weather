@@ -29,15 +29,16 @@ function fakeEl(tag) {
   return el;
 }
 
-async function setup({ at = NOW, animalAt = () => false, clouds = [] } = {}) {
-  const docListeners = {};
+async function setup({ at = NOW, animalAt = () => false, clouds = [], live = LIVE } = {}) {
+  const docListeners = {}, winListeners = {};
   globalThis.document = { createElement: fakeEl, createElementNS: (_, t) => fakeEl(t), body: fakeEl('body'),
     addEventListener: (n, f) => { (docListeners[n] ??= []).push(f); } };
   globalThis.window = globalThis;
-  Object.assign(globalThis, { innerWidth: W, innerHeight: H, matchMedia: () => ({ matches: false }), addEventListener() {} });
+  Object.assign(globalThis, { innerWidth: W, innerHeight: H, matchMedia: () => ({ matches: false }),
+    addEventListener: (n, f) => { (winListeners[n] ??= []).push(f); } });
   const { createCelestialControl } = await import('../src/app/celestialControl.js');
   let tick = null;
-  const p = createPlayback({ getLive: () => LIVE, now: () => at, reduced: () => false, onChange: () => c?.render(),
+  const p = createPlayback({ getLive: () => live, now: () => at, reduced: () => false, onChange: () => c?.render(),
     requestFrame: f => { tick = f; return 1; }, cancelFrame: () => { tick = null; } });
   const hand = bodyAt(STOCKHOLM, at, W, H);
   let hook = null;
@@ -48,38 +49,58 @@ async function setup({ at = NOW, animalAt = () => false, clouds = [] } = {}) {
     tapAt: (x, y, e) => { if (hook(x, y, e)) return; routed.push(routeTap(document.body.dataset.menu === 'open', x, y,
       { interactAnimal: animalAt, interact: () => {}, landscapeTap: () => { document.body.dataset.menu = 'closed'; } })); } };
   const hint = fakeEl('div');
-  const c = createCelestialControl({ engine, playback: p, getLive: () => LIVE, hint });
+  const c = createCelestialControl({ engine, playback: p, getLive: () => live, hint });
   c.render();
   const svg = document.body.children.find(e => e.tag === 'svg');
   const button = document.body.children.find(e => e.tag === 'button');
   const tap = (x, y, pointerType = 'touch') => engine.tapAt(x, y, { pointerType });
+  // A finger on the window: down, then (a still, quick press) the engine's tap, then up.
+  let ids = 100;
+  const fire = (n, e) => { for (const fn of winListeners[n] ?? []) fn(e); };
+  const ev = (id, x, y, stamp = 0) => ({ pointerId: id, pointerType: 'touch', button: 0, isPrimary: true, clientX: x, clientY: y, timeStamp: stamp, target: {} });
+  const down = (x, y) => { const id = ++ids; fire('pointerdown', ev(id, x, y)); return id; };
+  const up = (id, x, y, { tap: isTap = true, ms = 100 } = {}) => { if (isTap) engine.tapAt(x, y, ev(id, x, y, ms)); fire('pointerup', ev(id, x, y, ms)); };
+  const press = (x, y) => up(down(x, y), x, y);
   const escape = () => { for (const fn of docListeners.keydown ?? []) fn({ key: 'Escape', preventDefault() {}, stopImmediatePropagation() {} }); };
-  return { p, c, svg, hint, hand, tap, routed, escape, button, arc: day => skyArc(STOCKHOLM, at + day * DAY, hand.body, W, H, { min: at, max: LAST }) };
+  return { p, c, svg, hint, hand, tap, down, up, press, routed, escape, button, arc: () => skyArc(STOCKHOLM, at, hand.body, W, H, { min: at, max: Math.max(...live.forecast.map(r => r.time)) }) };
 }
 
-test('sky arc: future hours only, three day beads, a horizon tick where the pass ends', () => {
+const ZONE = 'Europe/Stockholm';
+const sameDay = (a, b) => localDayStart(a, ZONE) === localDayStart(b, ZONE);
+
+test('sky arc: about a day ahead, later today until the tick, the next day from the tick on; no beads', () => {
   const a = skyArc(STOCKHOLM, NOW, 'sun', W, H, RANGE);
-  assert.ok(a.points.length > 2 && a.points.every(q => q.t > NOW));
-  assert.ok(a.hours.length >= 2 && a.hours.every(q => q.t % HOUR === 0 && q.t > NOW));
-  assert.equal(a.beads.length, 1, 'today: dawn and midday are behind; dusk is ahead');
-  assert.ok(a.tick && Math.abs(a.tick.y - HORIZON_Y) < 12, 'the tick sits where the arc meets the horizon');
-  const tomorrow = skyArc(STOCKHOLM, NOW + DAY, 'sun', W, H, RANGE);
-  assert.equal(tomorrow.beads.length, 3, 'dawn, midday, dusk');
+  assert.equal(a.paths.length, 2, 'later today, then the next pass');
+  assert.ok(a.paths.flat().every(q => q.t > NOW && q.t <= NOW + DAY), 'from now through about 24 h');
+  assert.ok(a.paths[0].every(q => sameDay(q.t, NOW)), 'before the tick: later today');
+  assert.ok(a.paths[1].every(q => !sameDay(q.t, NOW) && q.t > NOW), 'past the tick: the next day');
+  assert.ok(a.hours.length >= 6 && a.hours.every(q => q.t % HOUR === 0 && q.t > NOW));
+  assert.equal(a.beads, undefined, 'no beads');
+  assert.ok(a.tick && Math.abs(a.tick.y - HORIZON_Y) < 1, 'one tick, on the horizon');
+  assert.ok(Math.abs(a.tick.x - a.paths[0].at(-1).x) < 1, 'where the arc goes down through it');
+  assert.equal(a.tick.t, a.paths[1].map(q => Math.ceil(q.t / HOUR) * HOUR)[0], 'the tick is the first hour of the next day');
+  assert.ok(!sameDay(a.tick.t, NOW));
+  // Stops early when the forecast ends.
+  const short = skyArc(STOCKHOLM, NOW, 'sun', W, H, { min: NOW, max: NOW + 2 * HOUR });
+  assert.ok(short.paths.flat().every(q => q.t <= NOW + 2 * HOUR));
+  assert.equal(short.tick, null, 'the forecast ends before the horizon: no tick');
   const night = skyArc(STOCKHOLM, Date.UTC(2026, 10, 1, 21), 'moon', W, H, RANGE);
-  assert.equal(night.beads.length, 3, 'moon: dusk, midnight, dawn');
   assert.ok(night.hours.length > 10, 'the mirrored moon path, not a new one');
+  assert.ok(night.tick && night.tick.t > night.paths[0].at(-1).t);
   assert.equal(cloudHit({ left: 10, right: 20, top: 5, bottom: 15 }).right - cloudHit({ left: 10, right: 20, top: 5, bottom: 15 }).left, 44);
 });
 
-test('first tap on the hand arms: ring, arc, beads, tick, "Tap ahead"; the live sky stays on now', async () => {
+test('first tap on the hand arms: ring, arc, one tick, no beads, "Tap ahead"; the live sky stays on now', async () => {
   const f = await setup();
   assert.equal(f.svg.style.display, 'none');
   f.tap(f.hand.x, f.hand.y);
-  assert.deepEqual(f.c.armed, { body: 'sun', day: 0 });
+  assert.deepEqual(f.c.armed, { body: 'sun' });
   assert.equal(f.svg.style.display, '');
   assert.ok(f.svg.classList.contains('is-armed'));
-  assert.match(f.svg.children[0].getAttribute('d'), /^M/, 'the faint arc is drawn');
-  assert.match(f.svg.children[1].getAttribute('d'), /h12$/, 'the horizon tick');
+  assert.match(f.svg.children[0].getAttribute('d'), /^M[^M]+M[^M]+$/, 'the faint arc: later today, then the next day');
+  assert.match(f.svg.children[1].getAttribute('d'), /^M[\d.]+,[\d.]+h12$/, 'one 12 px horizon tick');
+  assert.ok(!f.svg.children.some(el => el.tag === 'circle' && /bead/.test(el.attrs.class ?? '')), 'no beads');
+  assert.equal(f.svg.children.filter(el => el.tag === 'circle').length, 4, 'soft, ghost, ring, breath; nothing else');
   assert.equal(f.hint.textContent, 'Tap ahead');
   assert.equal(document.body.dataset.selecting, 'true', 'readout drops to the quieter tone');
   assert.equal(f.p.state.mode, 'live');
@@ -103,64 +124,143 @@ test('the horizon band and a cloud also arm; empty ground does not', async () =>
 test('second tap on the arc plays that hour', async () => {
   const f = await setup();
   f.tap(f.hand.x, f.hand.y);
-  const q = f.arc(0).hours.at(-1);
-  f.tap(q.x + 6, q.y - 8);
-  assert.equal(f.c.armed, null, 'ring, arc, beads, tick and hint leave');
+  const q = f.arc().hours.find(h => sameDay(h.t, NOW) && Math.hypot(h.x - f.hand.x, h.y - f.hand.y) > 40);
+  f.press(q.x + 6, q.y - 8);
+  assert.equal(f.c.armed, null, 'ring, arc, tick and hint leave');
   assert.equal(f.p.state.mode, 'playing', 'the existing release');
   assert.equal(f.hint.textContent, '');
   assert.equal(f.svg.style.display, 'none');
 });
 
-test('horizon or a cloud off the arc steps one local day and stays armed; stops at the last forecast day', async () => {
-  const f = await setup({ clouds: [{ left: 20, top: 100, right: 80, bottom: 130 }] });
-  f.tap(f.hand.x, f.hand.y);
-  f.tap(40, HORIZON_Y);
-  assert.equal(f.c.armed.day, 1);
-  assert.equal(f.p.state.chosen, Date.UTC(2026, 10, 2, 11), 'a ghost at the same clock hour tomorrow');
-  assert.equal(f.p.state.mode, 'live', 'does not play');
-  assert.equal(f.p.state.at, null, 'the live sky does not move');
-  f.tap(50, 115);
-  assert.equal(f.c.armed.day, 2, 'an off-arc cloud steps too');
-  f.tap(40, HORIZON_Y); f.tap(40, HORIZON_Y); f.tap(40, HORIZON_Y);
-  assert.ok(localDayStart(NOW + f.c.armed.day * DAY, 'Europe/Stockholm') <= LAST);
-  assert.ok(localDayStart(NOW + (f.c.armed.day + 1) * DAY, 'Europe/Stockholm') > LAST, 'stops at the last forecast day');
-  assert.ok(f.p.state.chosen <= LAST);
-  // Then an arc tap on that day plays an hour on it.
-  const f2 = await setup();
-  f2.tap(f2.hand.x, f2.hand.y); f2.tap(40, HORIZON_Y);
-  const q = f2.arc(1).hours[2];
-  f2.tap(q.x, q.y);
-  assert.equal(f2.p.state.mode, 'playing');
-});
-
-test('a cloud hiding the hand is the hand: day 0 disarms and nothing plays; a later day plays its clock hour', async () => {
-  const f = await setup({ clouds: [] });
-  const hidden = { left: f.hand.x - 60, right: f.hand.x + 60, top: f.hand.y - 30, bottom: f.hand.y + 30 };
-  f.tap(f.hand.x, f.hand.y);
-  f.tap(40, HORIZON_Y);
-  const g = await setup({ clouds: [hidden] });
-  g.tap(g.hand.x + 50, g.hand.y + 20); // the cloud, not the disc
-  assert.ok(g.c.armed);
-  g.tap(g.hand.x + 50, g.hand.y + 20);
-  assert.equal(g.c.armed, null);
-  assert.equal(g.p.state.mode, 'live', 'still now: disarms, nothing plays');
-  // Day 1 then the hand: the same clock hour tomorrow plays.
-  f.tap(f.hand.x, f.hand.y);
-  assert.equal(f.p.state.mode, 'playing');
-});
-
-test('empty ground lets go; hours before now do nothing and the arm stays', async () => {
+test('touch down on the arc paints its hour on the time line only; release in the corridor plays it', async () => {
   const f = await setup();
   f.tap(f.hand.x, f.hand.y);
-  const past = f.arc(0);
-  assert.ok(past.rest.length, 'this morning is behind');
-  const morning = past.rest.find(q => q.y < HORIZON_Y - 60 && Math.hypot(q.x - f.hand.x, q.y - f.hand.y) > 60);
-  f.tap(morning.x, morning.y);
-  assert.ok(f.c.armed, 'an hour before now: nothing, the arm stays');
-  f.tap(200, 800);
+  const q = f.arc().hours.find(h => sameDay(h.t, NOW) && Math.hypot(h.x - f.hand.x, h.y - f.hand.y) > 40);
+  const id = f.down(q.x, q.y);
+  assert.equal(f.p.state.chosen, q.t, 'the time line shows the nearest future hour');
+  assert.equal(f.p.state.mode, 'live', 'the live sky stays on now');
+  assert.equal(f.p.state.at, null);
+  assert.ok(f.c.armed);
+  f.up(id, q.x + 3, q.y + 3);
+  assert.equal(f.p.state.mode, 'playing');
+  // A slide (not a tap) or a release outside the corridor plays nothing; the arm stays.
+  const g = await setup();
+  g.tap(g.hand.x, g.hand.y);
+  const id2 = g.down(q.x, q.y);
+  g.up(id2, q.x + 60, q.y + 40, { tap: false });
+  assert.ok(g.c.armed, 'the arm stays');
+  assert.equal(g.p.state.chosen, null);
+  assert.equal(g.p.state.mode, 'live');
+  const id3 = g.down(q.x, q.y);
+  g.up(id3, 30, 760); // a release far from the corridor, on empty ground
+  assert.ok(g.c.armed, 'released outside the corridor: the arm stays');
+  assert.equal(g.p.state.mode, 'live');
+  // A press held longer than 0.5 s is not a tap, even in the corridor.
+  const id4 = g.down(q.x, q.y);
+  g.up(id4, q.x, q.y, { tap: false, ms: 700 });
+  assert.ok(g.c.armed);
+  assert.equal(g.p.state.mode, 'live');
+  assert.equal(g.p.state.chosen, null);
+  // A quick slide that stays in the corridor plays the hour it went down on (the slide never moves it).
+  const along = g.arc().paths[0].find(p => Math.hypot(p.x - q.x, p.y - q.y) > 12 && Math.hypot(p.x - q.x, p.y - q.y) < 30 && Math.hypot(p.x - g.hand.x, p.y - g.hand.y) > 40);
+  const id5 = g.down(q.x, q.y);
+  g.up(id5, along.x, along.y, { tap: false });
+  assert.equal(g.p.state.mode, 'playing');
+});
+
+test('the horizon tick and the path past it play the next day; no extra tap, the arm does not wait', async () => {
+  const f = await setup();
+  f.tap(f.hand.x, f.hand.y);
+  const a = f.arc();
+  const id = f.down(a.tick.x, a.tick.y);
+  assert.equal(f.p.state.chosen, a.tick.t, 'touch down on the tick paints the next day');
+  assert.ok(!sameDay(f.p.state.chosen, NOW));
+  f.up(id, a.tick.x + 2, a.tick.y);
+  assert.equal(f.c.armed, null, 'one release: the arm is gone');
+  assert.equal(f.p.state.mode, 'playing');
+  // Past the tick: an hour on the next day's path.
+  const g = await setup();
+  g.tap(g.hand.x, g.hand.y);
+  const q = a.hours.find(h => !sameDay(h.t, NOW) && Math.hypot(h.x - g.hand.x, h.y - g.hand.y) > 40);
+  g.press(q.x, q.y);
+  assert.equal(g.c.armed, null);
+  assert.equal(g.p.state.mode, 'playing');
+  const before = g.p.state.at;
+  assert.ok(before >= NOW);
+  // The journey heads for that hour on the next day.
+  const h = await setup();
+  h.tap(h.hand.x, h.hand.y);
+  h.down(q.x, q.y);
+  assert.equal(h.p.state.chosen, q.t);
+  assert.ok(!sameDay(q.t, NOW), 'the next day');
+});
+
+test('the open horizon and a cloud off the arc leave the arm as it is: no day step, nothing plays', async () => {
+  const off = { left: 20, top: 100, right: 80, bottom: 130 };
+  const f = await setup({ clouds: [off] });
+  f.tap(f.hand.x, f.hand.y);
+  const a = f.arc();
+  for (const [x, y] of [[20, HORIZON_Y], [40, HORIZON_Y - 18], [370, HORIZON_Y + 15], [50, 115], [50, 115], [20, HORIZON_Y]]) {
+    f.press(x, y);
+    assert.deepEqual(f.c.armed, { body: 'sun' }, `(${x}, ${y}) leaves the arm`);
+    assert.equal(f.p.state.chosen, null, 'the date line stays on now');
+    assert.equal(f.p.state.mode, 'live', 'does not play');
+    assert.equal(f.p.state.at, null, 'the live sky does not move');
+  }
+  assert.ok(Math.abs(20 - a.tick.x) > 44, 'the open horizon is away from the tick');
+});
+
+test('a cloud on the arc is that point on the path; a cloud on the hand is the hand', async () => {
+  const a = skyArc(STOCKHOLM, NOW, 'sun', W, H, RANGE);
+  const q = a.hours.find(h => sameDay(h.t, NOW) && h.y > 250);
+  const on = { left: q.x - 4, right: q.x + 80, top: q.y - 10, bottom: q.y + 10 }; // covers the arc; the tap is off it
+  const f = await setup({ clouds: [on] });
+  f.tap(f.hand.x, f.hand.y);
+  const box = cloudHit(on), x = q.x + 70;
+  assert.ok(a.paths.flat().some(p => p.x >= box.left && p.x <= box.right && p.y >= box.top && p.y <= box.bottom), 'the cloud covers the arc');
+  assert.ok(Math.min(...a.paths.flat().map(p => Math.hypot(p.x - x, p.y - q.y))) > 30, 'the tap itself is off the corridor');
+  const id = f.down(x, q.y);
+  assert.equal(f.p.state.chosen, q.t, 'touch down on the cloud paints that hour');
+  f.up(id, x, q.y);
   assert.equal(f.c.armed, null);
-  assert.equal(f.p.state.mode, 'live');
-  assert.equal(f.svg.style.display, 'none');
+  assert.equal(f.p.state.mode, 'playing', 'release there plays that hour');
+  // A cloud over the hand is the hand: disarm, nothing plays.
+  const g = await setup();
+  const hidden = { left: g.hand.x - 60, right: g.hand.x + 60, top: g.hand.y - 30, bottom: g.hand.y + 30 };
+  const k = await setup({ clouds: [hidden] });
+  k.tap(k.hand.x + 50, k.hand.y + 20);
+  assert.ok(k.c.armed);
+  k.press(k.hand.x + 50, k.hand.y + 20);
+  assert.equal(k.c.armed, null);
+  assert.equal(k.p.state.mode, 'live', 'disarms, nothing plays');
+});
+
+test('a tap on the hand disarms; empty ground lets go; hours before now or past the forecast do nothing', async () => {
+  const f = await setup();
+  f.tap(f.hand.x, f.hand.y);
+  f.press(f.hand.x, f.hand.y);
+  assert.equal(f.c.armed, null, 'the hand: let go');
+  assert.equal(f.p.state.mode, 'live', 'nothing plays');
+  assert.equal(f.p.state.chosen, null);
+  // A forecast that ends in 3 h: this morning (before now) and tomorrow morning (past the forecast) are inert.
+  const live = { ...LIVE, forecast: rows.filter(r => r.time <= NOW + 3 * HOUR) };
+  const g = await setup({ live });
+  g.tap(g.hand.x, g.hand.y);
+  const a = g.arc();
+  assert.ok(a.rest.flat().length, 'the pass has a part that cannot be chosen');
+  const morning = a.rest.flat().find(q => q.y < HORIZON_Y - 60 && Math.hypot(q.x - g.hand.x, q.y - g.hand.y) > 60
+    && !a.paths.some(s => s.some(p => Math.hypot(p.x - q.x, p.y - q.y) < 30)));
+  g.press(morning.x, morning.y);
+  assert.ok(g.c.armed, 'before now / past the forecast: nothing, the arm stays');
+  assert.equal(g.p.state.mode, 'live');
+  assert.equal(g.p.state.chosen, null);
+  g.press(200, 800);
+  assert.equal(g.c.armed, null);
+  assert.equal(g.p.state.mode, 'live');
+  assert.equal(g.svg.style.display, 'none');
+  // classifyTap: the path before now is inert.
+  assert.equal(classifyTap({ x: 10, y: 10, armed: true, hand: { x: 300, y: 300, r: 10 }, horizonY: HORIZON_Y,
+    arc: { paths: [], hours: [], tick: null, rest: [[{ x: 0, y: 10 }, { x: 40, y: 10 }]] } }).type, 'inert');
 });
 
 test('wildlife wins a shared tap: a bird on the hand never arms, places or cancels', async () => {
@@ -170,7 +270,7 @@ test('wildlife wins a shared tap: a bird on the hand never arms, places or cance
   assert.equal(f.c.armed, null, 'does not arm');
   assert.deepEqual(f.routed, ['wildlife'], 'the bird gets the tap');
   bird = false; f.tap(f.hand.x, f.hand.y); bird = true;
-  const q = f.arc(0).hours[0];
+  const q = f.arc().hours.find(h => Math.hypot(h.x - f.hand.x, h.y - f.hand.y) > 40);
   f.tap(q.x, q.y);
   assert.ok(f.c.armed, 'does not place');
   assert.equal(f.p.state.mode, 'live');
@@ -198,7 +298,7 @@ test('sheet open: a press on the hand, horizon or cloud only closes the sheet; t
 test('during a journey a tap does not arm; a fine pointer never takes the tap path; a finger slide never scrubs', async () => {
   const f = await setup();
   f.tap(f.hand.x, f.hand.y);
-  f.tap(...(q => [q.x, q.y])(f.arc(0).hours.at(-1)));
+  f.tap(...(q => [q.x, q.y])(f.arc().hours.find(h => sameDay(h.t, NOW) && Math.hypot(h.x - f.hand.x, h.y - f.hand.y) > 40)));
   assert.equal(f.p.state.mode, 'playing');
   f.tap(f.hand.x, f.hand.y);
   assert.equal(f.c.armed, null);
