@@ -45,6 +45,42 @@ function landmarkFor(loc) {
  * Wires data -> engine -> UI. The engine only ever sees the "effective" weather:
  * live data with any dev overrides applied on top.
  */
+/**
+ * Reports the readout's visible text box ({ left, top, right, bottom }, CSS px, or null when hidden)
+ * whenever its text, its size, the window or the menu/desk layout changes, so the renderer can keep
+ * the moon, meteors and eclipse clear of it. Text nodes are measured, not the block boxes, so a short
+ * readout does not claim the full overlay width.
+ */
+function trackReadout(el, report) {
+  let frame = 0;
+  const measure = () => {
+    frame = 0;
+    let box = null;
+    if (el.checkVisibility?.({ visibilityProperty: true }) ?? true) {
+      const range = document.createRange();
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (!node.textContent.trim()) continue;
+        range.selectNodeContents(node);
+        for (const r of range.getClientRects()) {
+          if (r.width < 1 || r.height < 1) continue;
+          box = box
+            ? { left: Math.min(box.left, r.left), top: Math.min(box.top, r.top), right: Math.max(box.right, r.right), bottom: Math.max(box.bottom, r.bottom) }
+            : { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+        }
+      }
+    }
+    report(box);
+  };
+  const schedule = () => { if (!frame) frame = requestAnimationFrame(measure); };
+  new MutationObserver(schedule).observe(el, { subtree: true, childList: true, characterData: true });
+  new MutationObserver(schedule).observe(document.body, { attributes: true, attributeFilter: ['data-menu', 'data-desk'] });
+  new ResizeObserver(schedule).observe(el);
+  window.addEventListener('resize', schedule);
+  document.fonts?.ready.then(schedule);
+  measure();
+}
+
 export async function startApp() {
   const params = new URLSearchParams(location.search);
   const engine = createEngine(document.getElementById('scene'));
@@ -196,6 +232,7 @@ export async function startApp() {
     onEnter: () => { menu.close(); if (place && (!updatedAt || Date.now() - updatedAt >= REFRESH_MS)) refresh(); },
   });
   if (params.get('desk') === '1') desk.enter(); // in-page (fullscreen needs a user gesture)
+  trackReadout(document.getElementById('overlay'), box => engine.setReadout(box));
   overlay.onLocation = loc => {
     place = loc;
     live = null;
