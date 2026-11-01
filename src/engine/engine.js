@@ -291,6 +291,9 @@ export function createEngine(canvas, { themes = THEMES } = {}) {
    * @param {{ immediate?: boolean }} [opts] immediate snaps instead of cross-fading.
    */
   function setWeather({ condition, isDay, windSpeed, solarElevation, sunRising, location, scene: atmosphere = 'live' }, { immediate = false } = {}) {
+    // A manually paused scene cannot advance a cross-fade. Paint the new weather
+    // once at the frozen simulation time, without restarting the animation loop.
+    immediate ||= manualPause;
     if (Number.isFinite(location?.lat)) lastLat = location.lat;
     env.season = seasonOverride ?? seasonFor(lastLat);
     // Night-only aliases: 'night' is clear sky and 'night-rain' is rain, both with the sun forced below -18 deg.
