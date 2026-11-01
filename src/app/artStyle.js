@@ -24,23 +24,24 @@ export function parseStyleParam(value, styles = ART_STYLES) {
   return isStyleId(id, styles) ? id : null;
 }
 
-function readStored(styles) {
+function readStored(styles, key) {
   try {
-    const id = localStorage.getItem(STORAGE_KEY);
+    const id = localStorage.getItem(key);
     return isStyleId(id, styles) ? id : null;
   } catch { return null; }
 }
 
-function writeStored(id) {
-  try { localStorage.setItem(STORAGE_KEY, id); } catch { /* private mode / blocked storage: selection is session-only */ }
+function writeStored(id, key) {
+  try { localStorage.setItem(key, id); } catch { /* private mode / blocked storage: selection is session-only */ }
 }
 
 /**
  * Creates the style state. `initial` (e.g. from ?style=) wins over the stored choice; `persist: false`
  * (tests) skips localStorage. Listeners run on every change and once on subscribe with the current id.
+ * `key` / `fallback` let another option set (the landscapes, src/app/landscape.js) reuse the same state.
  */
-export function createStyleState({ initial = null, styles = ART_STYLES, persist = true } = {}) {
-  let current = (isStyleId(initial, styles) && initial) || (persist && readStored(styles)) || DEFAULT_STYLE;
+export function createStyleState({ initial = null, styles = ART_STYLES, persist = true, key = STORAGE_KEY, fallback = DEFAULT_STYLE } = {}) {
+  let current = (isStyleId(initial, styles) && initial) || (persist && readStored(styles, key)) || fallback;
   const listeners = new Set();
 
   return {
@@ -50,7 +51,7 @@ export function createStyleState({ initial = null, styles = ART_STYLES, persist 
     set(id) {
       if (id === current || !isStyleId(id, styles)) return;
       current = id;
-      if (persist) writeStored(id);
+      if (persist) writeStored(id, key);
       for (const fn of listeners) fn(current);
     },
     /** Registers a listener (called immediately with the current id) and returns an unsubscribe function. */

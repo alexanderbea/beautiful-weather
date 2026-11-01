@@ -6,6 +6,8 @@
  *
  * Keyboard: a single-tab-stop radio group; arrow keys / Home / End move between styles and select.
  * `swatch` (optional, a CSS colour/gradient) tints each button's chip; without it a neutral chip is shown.
+ * `name` (default 'Art style') labels the group, so the same control also picks the landscape; a
+ * landscape picker (`.style-picker--landscape`) sits one row above the art-style picker.
  */
 const CSS = `
 .style-picker {
@@ -49,6 +51,7 @@ const CSS = `
   background: var(--chip, rgba(232, 238, 246, 0.5));
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
 }
+.style-picker--landscape { bottom: calc(max(14px, env(safe-area-inset-bottom)) + 44px); }
 @media (max-width: 520px) { .style-picker__label { display: none; } .style-picker__btn { padding: 6px; } .style-picker__chip { width: 14px; height: 14px; } }
 @media (prefers-reduced-motion: reduce) { .style-picker, .style-picker__btn { transition: none; } }
 `;
@@ -63,16 +66,17 @@ function injectCss() {
   document.head.append(el);
 }
 
-export function createStylePicker(root, { styles, active, onChange }) {
+export function createStylePicker(root, { styles, active, onChange, name = 'Art style' }) {
   injectCss();
   root.classList.add('style-picker');
-  root.innerHTML = `<div class="style-picker__group" role="radiogroup" aria-label="Art style">${styles
+  const kind = escapeHtml(name.toLowerCase());
+  root.innerHTML = `<div class="style-picker__group" role="radiogroup" aria-label="${escapeHtml(name)}">${styles
     .map((s) => {
       const label = escapeHtml(s.label);
       const hint = s.hint ? escapeHtml(s.hint) : '';
       const chip = s.swatch ? ` style="--chip: ${escapeHtml(s.swatch)}"` : '';
       return `<button type="button" class="style-picker__btn" role="radio" aria-checked="false" tabindex="-1"
-        data-style-id="${escapeHtml(s.id)}" aria-label="${label}${hint ? ` art style: ${hint}` : ' art style'}" title="${hint || label}">
+        data-style-id="${escapeHtml(s.id)}" aria-label="${label}${hint ? ` ${kind}: ${hint}` : ` ${kind}`}" title="${hint || label}">
         <span class="style-picker__chip" aria-hidden="true"${chip}></span><span class="style-picker__label">${label}</span></button>`;
     })
     .join('')}</div>`;

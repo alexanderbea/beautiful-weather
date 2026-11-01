@@ -326,9 +326,11 @@ function createInstance() {
     drawLand(ctx, env, weight) {
       if (!foliage) return;
       const { width: w, height: h } = env;
+      if (env.landMask) { ctx.save(); ctx.clip(env.landMask); } // open sea (coast): leaves stay on land
       ctx.globalCompositeOperation = 'overlay';
       ctx.globalAlpha = FOLIAGE_ALPHA * weight * (FOLIAGE_NIGHT + (1 - FOLIAGE_NIGHT) * env.dayMix);
       ctx.drawImage(foliage, 0, 0, w, h);
+      if (env.landMask) ctx.restore();
       ctx.globalCompositeOperation = 'source-over';
       ctx.globalAlpha = 1;
     },

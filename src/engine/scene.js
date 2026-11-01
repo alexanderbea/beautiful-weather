@@ -7,16 +7,14 @@ import { createSkyline } from './skyline.js';
 import { createLighting } from './lighting.js';
 import { createSkyLayer } from './skyLayer.js';
 import { createAmbient } from './ambient.js';
+import { createLandscape } from './landscape.js';
 
 const TAU = Math.PI * 2;
 
-// Each hill is a sum of sine waves: [amplitude (fraction of height), frequency (per width), phase].
-const HILLS = [
-  { base: 0.66, speed: 0.004, waves: [[0.045, 1.2, 0.3], [0.02, 2.9, 1.7], [0.008, 7.3, 4.1]] },
-  { base: 0.75, speed: 0.009, waves: [[0.04, 0.9, 2.2], [0.022, 2.3, 0.4], [0.01, 5.7, 3.3]] },
-  { base: 0.87, speed: 0.016, waves: [[0.035, 0.7, 5.1], [0.018, 1.9, 2.8], [0.009, 4.6, 0.9]] },
-];
-export const HORIZON = HILLS[0].base;
+// The three land layers (far, mid, near) take their shape from the active landscape (landscape.js,
+// landscapes/). The horizon stays where the default hills' far ridge sits, for every landscape.
+export const HORIZON = 0.66;
+const LAYERS = 3;
 // Rim light strength per layer: the far ridge catches the most light.
 const RIM_LAYER = [1, 0.85, 0.7];
 // Sun height: 0.2h at e >= 12deg, at the horizon line at e = 0, fully behind the far hills by e ~ -4.
@@ -47,7 +45,8 @@ export function createScene() {
   const skyLayer = createSkyLayer();
   const meteors = createMeteors();
   const wildlife = createWaterWildlife();
-  const offsets = HILLS.map(() => Math.random());
+  const land = createLandscape();
+  const offsets = Array.from({ length: LAYERS }, () => Math.random());
   const skyline = createSkyline();
   const lighting = createLighting();
   const ambient = createAmbient(); // birds, leaves/petals, grass sway, water glints (ambient.js)
@@ -55,44 +54,59 @@ export function createScene() {
   // Foreground ridge handle for the grass: y(x) at screen x under the current scroll and shift.
   const ridge = {
     offset: 0, shift: 0, w: 1, h: 1,
-    y(x) { return hillY(HILLS[2], 2, (x - this.shift) / this.w, this.h); },
+    y(x) { return hillY(2, (x - this.shift) / this.w, this.h); },
   };
 
-  function hillY(hill, i, u, h) {
-    let y = hill.base * h;
-    for (const [amp, freq, phase] of hill.waves) y -= amp * h * Math.sin(TAU * (u + offsets[i]) * freq + phase);
-    return y;
+  /** Layer i's top (px) at screen-relative u (fraction of w), including its scroll offset. */
+  function hillY(i, u, h) {
+    return land.y(i, u + offsets[i]) * h;
   }
 
   /** One hill layer: sampled across [-HILL_BLEED, 1 + HILL_BLEED] of the width, moved by `shift` px. */
   function drawHill(ctx, env, i, shift, rimGrad) {
     const { width: w, height: h, theme } = env;
-    const hill = HILLS[i];
     const step = Math.max(4, w / 240);
     const x0 = -Math.ceil((HILL_BLEED * w) / step) * step; // on the step grid, so samples match x = 0, step, ...
     const x1 = w * (1 + HILL_BLEED) + step;
-    ctx.fillStyle = rgba(theme.hills[i]);
-    ctx.beginPath();
-    ctx.moveTo(x0, h);
-    for (let x = x0; x <= x1; x += step) ctx.lineTo(x, hillY(hill, i, (x - shift) / w, h));
-    ctx.lineTo(x1, h);
-    ctx.closePath();
-    ctx.fill();
+    const color = land.color(i);
+    const path = new Path2D();
+    const top = new Path2D(); // the open top edge, for the shade / keyline / rim strokes
+    path.moveTo(x0, h);
+    for (let x = x0; x <= x1; x += step) {
+      const y = hillY(i, (x - shift) / w, h);
+      path.lineTo(x, y);
+      top.lineTo(x, y);
+    }
+    path.lineTo(x1, h);
+    path.closePath();
+    // Landscape details (landscapes/): drawBehind under the fill (surf), drawOver after the edge
+    // strokes (snow, rock faces, trees), so trees stand in front of the layer's own rim line.
+    const api = { w, h, shift, offset: offsets[i], path, color, alpha: 1, time: 0, layer: null,
+      y: (x) => hillY(i, (x - shift) / w, h) };
+    land.detail('drawBehind', i, ctx, env, api);
+    ctx.fillStyle = rgba(color);
+    ctx.fill(path);
+    drawEdges(ctx, env, i, x0, x1, step, shift, path, top, rimGrad);
+    land.detail('drawOver', i, ctx, env, api);
+    // Over open water, full-frame land textures (style passes) clip to the mid + near layers.
+    if (env.landMask && i > 0) env.landMask.addPath(path);
+  }
+
+  function drawEdges(ctx, env, i, x0, x1, step, shift, path, top, rimGrad) {
+    const { width: w, height: h, theme } = env;
     // Bokashi (print styles): a darker wipe just under the ridge, faded in three widening strokes that
     // the hill's own shape clips to its inside.
     const shade = env.artStyle.params.hillShade;
     if (shade.alpha > 0.004) {
       ctx.save();
-      ctx.clip();
-      ctx.beginPath();
-      for (let x = x0; x <= x1; x += step) ctx.lineTo(x, hillY(hill, i, (x - shift) / w, h));
+      ctx.clip(path);
       ctx.strokeStyle = rgba(theme.shade);
       ctx.lineJoin = 'round';
       const depth = shade.depth * h;
       for (let k = 0; k < 3; k++) {
         ctx.lineWidth = depth * 2 * (1 - k * 0.3);
         ctx.globalAlpha = shade.alpha * (0.22 + k * 0.14) * (i === 0 ? 0.7 : 1);
-        ctx.stroke();
+        ctx.stroke(top);
       }
       ctx.restore();
       ctx.globalAlpha = 1;
@@ -101,7 +115,7 @@ export function createScene() {
     const key = env.artStyle.params.keyline;
     if (key.alpha > 0.004) {
       ctx.beginPath();
-      for (let x = x0; x <= x1; x += step) ctx.lineTo(x, hillY(hill, i, (x - shift) / w, h) + key.width * 0.5);
+      for (let x = x0; x <= x1; x += step) ctx.lineTo(x, hillY(i, (x - shift) / w, h) + key.width * 0.5);
       ctx.strokeStyle = rgba(key.color, key.alpha);
       ctx.lineWidth = key.width;
       ctx.lineJoin = 'round';
@@ -110,7 +124,7 @@ export function createScene() {
     if (!rimGrad) return;
     // Top edge only (open path, so no strokes down the sides): a wide soft pass then a crisp line.
     ctx.beginPath();
-    for (let x = x0; x <= x1; x += step) ctx.lineTo(x, hillY(hill, i, (x - shift) / w, h) + 0.75);
+    for (let x = x0; x <= x1; x += step) ctx.lineTo(x, hillY(i, (x - shift) / w, h) + 0.75);
     ctx.strokeStyle = rimGrad;
     ctx.globalAlpha = 0.35 * RIM_LAYER[i];
     ctx.lineWidth = 5;
@@ -145,6 +159,9 @@ export function createScene() {
   return {
     /** Mid-ground landmark silhouette: 'stockholm' | 'nordic' | null. */
     setLandmark: skyline.setLandmark,
+    /** Landscape shape (landscapes/): cross-fades unless immediate; false for unknown ids / no-ops. */
+    setLandscape(id, immediate = false) { return land.set(id, immediate); },
+    landscape: land,
     /** Night sky weights last frame: { darkness, stars, aurora, gate }. */
     sky: skyLayer.state,
     meteors,
@@ -160,7 +177,8 @@ export function createScene() {
       const twilight = env.twilight ?? 0;
       const elev = env.solarElevation ?? (dayMix > 0.5 ? 45 : -18);
       const drift = 1 + env.wind * 0.06;
-      HILLS.forEach((hill, i) => { offsets[i] = (offsets[i] + hill.speed * drift * dt) % 1; });
+      land.update(dt, env);
+      for (let i = 0; i < LAYERS; i++) offsets[i] = (offsets[i] + land.speed(i) * drift * dt) % 1;
 
       const m = Math.min(w, h);
       const vis = theme.celestialVisibility;
@@ -300,18 +318,25 @@ export function createScene() {
       }
       // Depth layers, back to front. Each shifts by env.parallax[layer] px on top of its own scroll.
       const shift = env.parallax ?? NO_SHIFT;
+      env.landMask = land.seaAlpha > 0.002 ? new Path2D() : null;
       ambient.drawBirds(ctx, env); // birds: in front of the clouds, behind every hill
       drawHill(ctx, env, 0, shift[0], rimGrad); // distant: far ridge
       skyline.draw(ctx, env, rimGrad, shift[0], light.skylineRim); // distant: town between far ridge and mid hill
-      ambient.drawWater(ctx, env, { shoreY: skyline.shore * env.height, alpha: skyline.waterAlpha, shift: shift[0] });
+      // Open sea (coast): behind the mid layer. Glints, fish and ripples use whichever water dominates.
+      land.drawSea(ctx, env, shift[0]);
+      const seaA = land.seaAlpha;
+      const onSea = seaA > skyline.waterAlpha;
+      const shoreY = (onSea ? land.seaTop : skyline.shore) * env.height;
+      const waterAlpha = Math.max(seaA, skyline.waterAlpha);
+      ambient.drawWater(ctx, env, { shoreY, alpha: waterAlpha, shift: shift[0] });
       const step = Math.max(4, w / 240);
       const contour = (i, x) => {
         const left = Math.floor(x / step) * step;
-        const a = hillY(HILLS[i], i, (left - shift[i]) / w, env.height);
-        const b = hillY(HILLS[i], i, (left + step - shift[i]) / w, env.height);
+        const a = hillY(i, (left - shift[i]) / w, env.height);
+        const b = hillY(i, (left + step - shift[i]) / w, env.height);
         return a + (b - a) * (x - left) / step;
       };
-      wildlife.setWater({ width: w, shore: skyline.shore * env.height, alpha: skyline.waterAlpha,
+      wildlife.setWater({ width: w, shore: shoreY, alpha: waterAlpha,
         bottom: x => Math.min(contour(1, x), contour(2, x)) });
       wildlife.draw(ctx, env);
       lighting.drawDawnFog(ctx, env, shift[0]); // sunrise mist on the water, still in the distant layer
