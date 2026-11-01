@@ -4,7 +4,8 @@ import { formatCoords } from '../data/geocode.js';
 import { convertTemp, unitForCountry } from './units.js';
 import { nextHours, precipitationSummary, isStale } from './forecast.js';
 
-const LABELS = { clear: 'Clear', clouds: 'Cloudy', rain: 'Rain', snow: 'Snow', wind: 'Windy', fog: 'Fog', night: 'Clear night', 'night-rain': 'Rainy night' };
+/** Readout word per condition. */
+export const LABELS = { clear: 'Clear', clouds: 'Cloudy', rain: 'Rain', snow: 'Snow', wind: 'Windy', fog: 'Fog', night: 'Clear night', 'night-rain': 'Rainy night' };
 /**
  * Current readout on the landscape (`root`) plus the menu's city row and hourly scrubber
  * (`controls`, `forecast`). Picking an hour reports onPreview(hour, { caption, commit });

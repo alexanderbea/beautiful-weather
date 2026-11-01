@@ -10,15 +10,30 @@ const CURRENT_FIELDS = 'temperature_2m,apparent_temperature,relative_humidity_2m
 const finite = value => Number.isFinite(value) ? value : null;
 const WINDY_MS = 10.8; // Beaufort 6 ("strong breeze")
 
+/**
+ * Precipitation kind of a WMO weather interpretation code: 'rain' for drizzle, rain, freezing
+ * rain, rain showers and thunderstorms; 'snow' for snow fall, snow grains and snow showers;
+ * null for everything else (clear, cloudy, overcast, fog).
+ *
+ * This is the only input that decides whether the sky rains. Precipitation probability and
+ * precipitation amount never do: a 30% chance, or a zero or trace amount under an overcast
+ * code, stays cloudy, and a drizzle/rain/shower code stays rain whatever the probability.
+ */
+export function precipitationKind(code) {
+  if (!Number.isFinite(code)) return null;
+  if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82) || code >= 95) return 'rain';
+  if ((code >= 71 && code <= 77) || code === 85 || code === 86) return 'snow';
+  return null;
+}
+
 /** Maps WMO weather interpretation codes (as used by Open-Meteo) onto our conditions. */
 export function mapWmoCondition(code, windSpeed) {
-  let condition;
-  if (code === 0 || code === 1) condition = 'clear'; // clear / mainly clear
-  else if (code === 2 || code === 3) condition = 'clouds'; // partly cloudy / overcast
-  else if (code === 45 || code === 48) condition = 'fog';
-  else if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82) || code >= 95) condition = 'rain'; // drizzle, rain, showers, thunder
-  else if ((code >= 71 && code <= 77) || code === 85 || code === 86) condition = 'snow';
-  else condition = 'clouds';
+  let condition = precipitationKind(code);
+  if (!condition) {
+    if (code === 0 || code === 1) condition = 'clear'; // clear / mainly clear
+    else if (code === 45 || code === 48) condition = 'fog';
+    else condition = 'clouds'; // 2 partly cloudy, 3 overcast, unknown codes
+  }
 
   if ((condition === 'clear' || condition === 'clouds') && windSpeed >= WINDY_MS) condition = 'wind';
   return condition;
@@ -34,6 +49,8 @@ export function parseOpenMeteo(data, location) {
   const observedAt = observed;
 
   return normalizeWeather({
+    // Only current.weather_code picks the condition (and so the label and the rain animation);
+    // hourly precipitation and precipitation_probability are forecast rows, never the sky now.
     condition: mapWmoCondition(cur.weather_code ?? 0, windSpeed),
     temperatureC: cur.temperature_2m,
     feelsLikeC: cur.apparent_temperature,
