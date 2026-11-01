@@ -12,6 +12,8 @@ import { ART_STYLES, createStyleState, parseStyleParam } from './artStyle.js';
 import { createStylePicker } from './stylePicker.js';
 import { createAmbientAudio } from '../engine/audio.js';
 import { createAudioControl } from './audioControl.js';
+import { createDeskMode } from './deskMode.js';
+import { locationTimeZone } from './cities.js';
 
 const REFRESH_MS = 10 * 60 * 1000;
 const SUN_TICK_MS = 60 * 1000;
@@ -186,6 +188,14 @@ export async function startApp() {
     if (live) apply();
   }
   overlay.onPreview = setPreview;
+  // Desk mode: the scene full screen with an optional clock; mirrors the readout, so it shows live
+  // weather (entering closes the menu, which drops any preview) and refreshes stale data on entry.
+  const desk = createDeskMode({
+    readout: document.getElementById('overlay'),
+    getState: () => ({ updatedAt, timeZone: locationTimeZone(live?.location ?? place) }),
+    onEnter: () => { menu.close(); if (place && (!updatedAt || Date.now() - updatedAt >= REFRESH_MS)) refresh(); },
+  });
+  if (params.get('desk') === '1') desk.enter(); // in-page (fullscreen needs a user gesture)
   overlay.onLocation = loc => {
     place = loc;
     live = null;
@@ -271,5 +281,5 @@ export async function startApp() {
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { tickSun(); if (!updatedAt || Date.now() - updatedAt >= REFRESH_MS) refresh(); } });
 
   // Handy for console experiments, e.g. __bw.engine.setThemes({ rain: { day: { sky: { top: '#000' } } } })
-  window.__bw = { engine, audio, service, refresh, style: styleState, menu, get live() { return live; }, get updatedAt() { return updatedAt; }, get previewTime() { return previewTime; } };
+  window.__bw = { engine, audio, service, refresh, style: styleState, menu, desk, get live() { return live; }, get updatedAt() { return updatedAt; }, get previewTime() { return previewTime; } };
 }
